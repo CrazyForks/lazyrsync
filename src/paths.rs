@@ -288,8 +288,15 @@ mod tests {
 
     #[test]
     fn user_placeholder_matches_the_environment() {
-        let want = std::env::var("USER").unwrap();
-        assert_eq!(expand_placeholders("/bak/{user}"), format!("/bak/{want}"));
+        let got = expand_placeholders("/bak/{user}");
+        match ["USER", "LOGNAME"]
+            .iter()
+            .filter_map(|k| std::env::var(k).ok())
+            .find(|v| !v.is_empty())
+        {
+            Some(want) => assert_eq!(got, format!("/bak/{want}")),
+            None => assert_eq!(got, "/bak/{user}"),
+        }
     }
 
     #[test]
