@@ -179,7 +179,8 @@ dest = "~/backups/{hostname}/{now:%Y-%m-%d}/"
 
 Unknown placeholders, unset variables and a bare `%` are left exactly as typed,
 and the dry-run preview always shows the resolved path before anything runs.
-Write `{{` for a literal brace and `$$` for a literal `$`.
+Braces and `$` are escaped by doubling them — `{{now}}` is a folder literally
+named `{now}`, and `$$HOME` a folder named `$HOME`.
 
 ## Contributing
 

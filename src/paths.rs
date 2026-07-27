@@ -166,7 +166,8 @@ pub fn expand_path(s: &str) -> String {
 }
 
 pub fn path_hits(buffer: &str) -> Vec<String> {
-    if buffer.contains('@') || (buffer.contains(':') && !buffer.starts_with('/')) {
+    let resolved = expand_path(buffer);
+    if resolved.contains('@') || (resolved.contains(':') && !resolved.starts_with('/')) {
         return Vec::new();
     }
     let (dir_disp, frag) = match buffer.rsplit_once('/') {
@@ -180,7 +181,7 @@ pub fn path_hits(buffer: &str) -> Vec<String> {
             ".".to_string()
         }
     } else {
-        expand_tilde(&dir_disp)
+        expand_path(&dir_disp)
     };
     let smart_sensitive = frag.chars().any(|c| c.is_uppercase());
     let frag_lower = frag.to_lowercase();
