@@ -1,16 +1,19 @@
-<h1 align="center">lazyrsync</h1>
+<div align="center">
 
-<p align="center">
-  <a href="https://crates.io/crates/lazyrsync"><img src="https://img.shields.io/crates/v/lazyrsync.svg" alt="crates.io"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/built%20with-Rust-orange?logo=rust" alt="Built with Rust"></a>
-  <a href="https://ratatui.rs"><img src="https://img.shields.io/badge/TUI-ratatui-1f6feb" alt="TUI: ratatui"></a>
-  <a href="https://lazyrsync.westpoint.io"><img src="https://img.shields.io/badge/docs-lazyrsync.westpoint.io-1f6feb" alt="Docs"></a>
-</p>
+  <img src="assets/logo.svg" alt="lazyrsync" width="600" />
 
-<p align="center">
-  <img src="assets/demo.gif" alt="lazyrsync demo" width="800">
-</p>
+  A terminal UI for rsync 🔄
+
+  <img src="assets/demo.gif" alt="lazyrsync demo" width="800" />
+
+  [![Built With Ratatui](https://img.shields.io/badge/Built_With-Ratatui-000?logo=ratatui&logoColor=FF6B6B&labelColor=222322&color=E23636)](https://ratatui.rs)
+  [![crates.io](https://img.shields.io/crates/v/lazyrsync.svg?color=E23636&labelColor=222322)](https://crates.io/crates/lazyrsync)
+  [![License](https://img.shields.io/badge/license-MIT-E23636.svg?labelColor=222322)](LICENSE)
+  [![Docs](https://img.shields.io/badge/docs-lazyrsync.westpoint.io-E23636?labelColor=222322)](https://lazyrsync.westpoint.io)
+
+  <a title="This tool is Tool of The Week on Terminal Trove, The $HOME of all things in the terminal" href="https://terminaltrove.com/lazyrsync"><img src="https://cdn.terminaltrove.com/media/badges/tool_of_the_week/png/terminal_trove_tool_of_the_week_gold_transparent.png" alt="Terminal Trove Tool of The Week" width="150" /></a>
+
+</div>
 
 A terminal UI for `rsync` — manage reusable profiles, preview a transfer as a
 structured diff **before** running it, and watch a live run with progress and
