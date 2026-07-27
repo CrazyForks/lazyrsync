@@ -156,7 +156,23 @@ Profiles and settings live under `$XDG_CONFIG_HOME/lazyrsync/` (typically
 `~/.config/lazyrsync/`):
 
 - `profiles.toml` — your profiles and tasks
-- `settings.toml` — preferences (theme, hints, `skip_delete_warning`)
+- `settings.toml` — preferences (theme, hints, confirmation prompts)
+
+### Confirmation prompts
+
+Every prompt has its own opt-out in `settings.toml`, all `false` by default:
+
+| Key | Silences |
+|-----|----------|
+| `skip_delete_warning` | the alert shown when you enable a task's `delete` flag |
+| `skip_run_confirm` | the confirmation shown before a run starts |
+| `skip_remove_confirm` | the confirmation shown before removing a profile or task |
+
+`skip_run_confirm` removes the last prompt before a transfer, including for
+tasks that use `--delete`.
+
+lazyrsync reads `settings.toml` at startup and rewrites it on exit, so edit it
+while the TUI is closed or your changes will be overwritten.
 
 ### Dynamic paths
 

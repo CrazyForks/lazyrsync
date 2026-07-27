@@ -38,15 +38,18 @@ impl ConfirmRun {
             lines.push(Line::from(format!("   …and {} more", n - max_rows).dim()));
         }
         if dels > 0 {
-            lines.push(Line::from(""));
-            lines.push(Line::from(
+            let warning = if n == 1 {
+                "⚠ this uses --delete — destination files will be removed.".to_string()
+            } else {
                 format!("⚠ {dels} of these use --delete — destination files will be removed.")
-                    .fg(deleted()),
-            ));
+            };
+            lines.push(Line::from(""));
+            lines.push(Line::from(warning.fg(deleted())));
         }
 
+        let run_label = if n == 1 { "Run" } else { "Run all" };
         let footer = if cx.settings.hints {
-            vec![hint_line(&[("<enter>", "Run all"), ("<esc>", "Cancel")])]
+            vec![hint_line(&[("<enter>", run_label), ("<esc>", "Cancel")])]
         } else {
             vec![]
         };
@@ -57,7 +60,11 @@ impl ConfirmRun {
                 Block::bordered()
                     .border_type(BorderType::Rounded)
                     .border_style(Style::new().fg(accent()).bold())
-                    .title(format!(" Run {n} tasks ").fg(accent()).bold()),
+                    .title(
+                        format!(" Run {n} task{} ", if n == 1 { "" } else { "s" })
+                            .fg(accent())
+                            .bold(),
+                    ),
             ),
             area,
         );
