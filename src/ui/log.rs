@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn wraps_long_command_within_width() {
         let long =
-            "rsync -a -z --include-from=/home/light/lazyrsync-test/include.txt -- /src/ /dst/";
+            "rsync -a -z --include-from=/home/tester/lazyrsync-test/include.txt -- /src/ /dst/";
         let rows = log_rows(&[entry(long)], 30);
         assert!(rows.len() > 1, "long line should wrap to multiple rows");
         for r in &rows {
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn continuation_rows_keep_hanging_indent() {
         let long =
-            "rsync -a -z --include-from=/home/light/lazyrsync-test/include.txt -- /src/ /dst/";
+            "rsync -a -z --include-from=/home/tester/lazyrsync-test/include.txt -- /src/ /dst/";
         let rows = log_rows(&[entry(long)], 30);
         assert!(rows.len() > 1);
         for r in &rows {
