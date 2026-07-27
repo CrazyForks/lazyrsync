@@ -158,6 +158,29 @@ Profiles and settings live under `$XDG_CONFIG_HOME/lazyrsync/` (typically
 - `profiles.toml` — your profiles and tasks
 - `settings.toml` — preferences (theme, hints, `skip_delete_warning`)
 
+### Dynamic paths
+
+Source and destination paths can contain placeholders, resolved every time the
+task runs — so one saved task can write to a new dated folder each night:
+
+| Placeholder | Expands to |
+|-------------|------------|
+| `{now}` | today's date, `2026-07-27` |
+| `{now:FORMAT}` | any [strftime](https://docs.rs/chrono/latest/chrono/format/strftime/index.html) format, e.g. `{now:%Y/%m/%d}` or `{now:%H%M}` |
+| `{utcnow}`, `{utcnow:FORMAT}` | the same in UTC |
+| `{hostname}` | this machine's hostname |
+| `{user}` | the current user |
+| `$VAR`, `${VAR}` | an environment variable |
+| `~` | your home directory |
+
+```toml
+dest = "~/backups/{hostname}/{now:%Y-%m-%d}/"
+```
+
+Unknown placeholders, unset variables and a bare `%` are left exactly as typed,
+and the dry-run preview always shows the resolved path before anything runs.
+Write `{{` for a literal brace and `$$` for a literal `$`.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the build/test/lint commands, the

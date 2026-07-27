@@ -11,12 +11,7 @@ fn is_remote_path(p: &str) -> bool {
 }
 
 fn expand_local(path: &str) -> String {
-    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
-    match (path, home) {
-        ("~", Some(home)) => home,
-        (p, Some(home)) if p.starts_with("~/") => format!("{home}/{}", &p[2..]),
-        _ => path.to_string(),
-    }
+    crate::paths::expand_path(path)
 }
 
 pub fn split_args(s: &str) -> Vec<String> {
@@ -122,9 +117,6 @@ pub fn build_args(task: &Task, dry_run: bool) -> Vec<String> {
 }
 
 pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
-    if !matches!(task.action, Action::Snapshot) {
-        return Ok(());
-    }
     let ep = resolve(task);
     if is_remote_path(&ep.dst) {
         return Ok(());
@@ -355,6 +347,60 @@ mod tests {
         prepare_dest(&p).unwrap();
         assert!(root.is_dir(), "snapshot root should be created");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prepare_dest_creates_parents_for_a_nested_sync_dest() {
+        let base = std::env::temp_dir().join(format!("lr-nest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dst = base.join("dst/host/2026-07-27");
+        let p = Task::new("t", "/src/", format!("{}/", dst.display()));
+        prepare_dest(&p).unwrap();
+        assert!(
+            dst.parent().unwrap().is_dir(),
+            "missing parents of a sync dest should be created"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn nested_dest_transfers_against_real_rsync() {
+        use std::fs;
+        if std::process::Command::new("rsync")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("rsync not installed — skipping live nested-dest test");
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("lr-nest-run-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let src = base.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.txt"), "hello").unwrap();
+
+        let dst = base.join("dst/{hostname}/{now:%Y-%m-%d}");
+        let p = Task::new(
+            "t",
+            format!("{}/", src.display()),
+            format!("{}/", dst.display()),
+        );
+        prepare_dest(&p).unwrap();
+        let status = std::process::Command::new("rsync")
+            .args(build_args(&p, false))
+            .status()
+            .expect("spawn rsync");
+
+        let landed = resolve(&p).dst;
+        let copied = std::path::Path::new(&landed).join("a.txt");
+        let ok = status.success() && copied.is_file();
+        let _ = fs::remove_dir_all(&base);
+        assert!(
+            ok,
+            "nested dest should transfer: status={status:?} expected file at {}",
+            copied.display()
+        );
     }
 
     #[test]
