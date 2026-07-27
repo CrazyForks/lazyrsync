@@ -89,34 +89,38 @@ impl ConfirmDelete {
         );
     }
 
+    pub fn apply(&self, cx: &mut Ctx) {
+        match &self.target {
+            Target::Profile(_) => {
+                let idx = cx.pcursor;
+                if idx < cx.store.profiles.len() {
+                    let removed = cx.store.profiles.remove(idx);
+                    if cx.profile > idx {
+                        cx.profile -= 1;
+                    }
+                    cx.clamp();
+                    cx.save(&format!("deleted profile '{}'", removed.name));
+                }
+            }
+            Target::Tasks(ids) => {
+                if let Some(p) = cx.store.profiles.get_mut(cx.profile) {
+                    let before = p.tasks.len();
+                    p.tasks.retain(|t| !ids.contains(&t.id));
+                    let removed = before - p.tasks.len();
+                    cx.clamp();
+                    cx.save(&format!(
+                        "deleted {removed} task{}",
+                        if removed == 1 { "" } else { "s" }
+                    ));
+                }
+            }
+        }
+    }
+
     pub fn on_key(&mut self, key: KeyEvent, cx: &mut Ctx) -> Cmd {
         match key.code {
             KeyCode::Char('y') | KeyCode::Enter => {
-                match &self.target {
-                    Target::Profile(_) => {
-                        let idx = cx.pcursor;
-                        if idx < cx.store.profiles.len() {
-                            let removed = cx.store.profiles.remove(idx);
-                            if cx.profile > idx {
-                                cx.profile -= 1;
-                            }
-                            cx.clamp();
-                            cx.save(&format!("deleted profile '{}'", removed.name));
-                        }
-                    }
-                    Target::Tasks(ids) => {
-                        if let Some(p) = cx.store.profiles.get_mut(cx.profile) {
-                            let before = p.tasks.len();
-                            p.tasks.retain(|t| !ids.contains(&t.id));
-                            let removed = before - p.tasks.len();
-                            cx.clamp();
-                            cx.save(&format!(
-                                "deleted {removed} task{}",
-                                if removed == 1 { "" } else { "s" }
-                            ));
-                        }
-                    }
-                }
+                self.apply(cx);
                 Cmd::Close
             }
             KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc => Cmd::Close,
