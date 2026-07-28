@@ -1,9 +1,16 @@
 use std::process::{Command, Stdio};
 
+use anstyle::{AnsiColor, Color, Style};
 use anyhow::{anyhow, Result};
 
 use crate::profile::{Profile, Task};
 use crate::rsync;
+
+const PROSE: Style = Style::new().dimmed();
+const IDENT: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan)));
+const VALUE: Style = Style::new().bold();
+const ALERT: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red)));
+const ALERT_STRONG: Style = ALERT.bold();
 
 pub fn list(profiles: &[Profile]) {
     if profiles.is_empty() {
@@ -82,7 +89,7 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
     let tasks = match select(profiles, target) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("error: {e:#}");
+            anstream::eprintln!("{ALERT_STRONG}error:{ALERT_STRONG:#} {e:#}");
             return 2;
         }
     };
@@ -93,48 +100,58 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
             .map(|t| t.id.as_str())
             .collect();
         if !blocked.is_empty() {
-            eprintln!(
-                "error: nothing ran — these tasks delete files at the destination and need --yes: {}",
+            anstream::eprintln!(
+                "{ALERT_STRONG}error:{ALERT_STRONG:#} nothing ran — these tasks delete files at the destination and need --yes: {IDENT}{}{IDENT:#}",
                 blocked.join(", ")
             );
             return 1;
         }
     }
     if tasks.is_empty() {
-        eprintln!("nothing to do: profile '{target}' has no tasks");
+        anstream::eprintln!("{PROSE}nothing to do: profile '{target}' has no tasks{PROSE:#}");
         return 0;
     }
     let mut ok = 0;
     let mut failed = 0;
     let mut first_failure = 0;
-    for t in &tasks {
-        println!("→ {}", t.label);
+    for (i, t) in tasks.iter().enumerate() {
+        if i > 0 {
+            anstream::println!();
+        }
+        anstream::println!("{PROSE}→{PROSE:#} {IDENT}{}{IDENT:#}", t.label);
         let code = match spawn_task(t, dry_run) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("error: {}: {e:#}", t.id);
+                anstream::eprintln!(
+                    "{ALERT_STRONG}error:{ALERT_STRONG:#} {IDENT}{}{IDENT:#}: {e:#}",
+                    t.id
+                );
                 COULD_NOT_START
             }
         };
         if succeeded(code) {
             ok += 1;
         } else {
-            eprintln!("✗ {} failed: exit {code}", t.id);
+            anstream::eprintln!(
+                "{ALERT}✗{ALERT:#} {IDENT}{}{IDENT:#} failed: exit {VALUE}{code}{VALUE:#}",
+                t.id
+            );
             failed += 1;
             if first_failure == 0 {
                 first_failure = code;
             }
         }
     }
+    let count = tasks.len();
+    let plural = if count == 1 { "" } else { "s" };
+    let failed_value = if failed > 0 { ALERT_STRONG } else { VALUE };
     let summary = format!(
-        "{} task{}: {ok} ok, {failed} failed",
-        tasks.len(),
-        if tasks.len() == 1 { "" } else { "s" }
+        "{VALUE}{count}{VALUE:#} {PROSE}task{plural}:{PROSE:#} {VALUE}{ok}{VALUE:#} {PROSE}ok,{PROSE:#} {failed_value}{failed}{failed_value:#} {PROSE}failed{PROSE:#}"
     );
     if failed > 0 {
-        eprintln!("{summary}");
+        anstream::eprintln!("{summary}");
     } else {
-        println!("{summary}");
+        anstream::println!("{summary}");
     }
     first_failure
 }

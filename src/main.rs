@@ -48,8 +48,12 @@ enum Command {
     List,
 }
 
+const ERROR_LABEL: anstyle::Style = anstyle::Style::new()
+    .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Red)))
+    .bold();
+
 fn config_error(e: anyhow::Error) -> ! {
-    eprintln!("error: {e:#}");
+    anstream::eprintln!("{ERROR_LABEL}error:{ERROR_LABEL:#} {e:#}");
     std::process::exit(2);
 }
 
