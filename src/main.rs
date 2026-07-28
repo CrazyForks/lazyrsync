@@ -1,5 +1,6 @@
 mod app;
 mod editor;
+mod headless;
 mod paths;
 mod popups;
 mod preview;
@@ -37,17 +38,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Command::List) => {
             let store = store::Store::load(false)?;
-            if store.profiles.is_empty() {
-                println!("No profiles. Add one in the TUI (run `lazyrsync`).");
-            }
-            for p in &store.profiles {
-                println!("{}", p.name);
-                for t in &p.tasks {
-                    println!("  {}", t.id);
-                    println!("      {}", rsync::resolved_command(t, false));
-                }
-                println!();
-            }
+            headless::list(&store.profiles);
             Ok(())
         }
         Some(Command::Run { profile, dry_run }) => {
