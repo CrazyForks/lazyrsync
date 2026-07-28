@@ -62,7 +62,9 @@ fn headless_args(task: &Task, dry_run: bool, verbose: bool) -> Vec<String> {
     let quiet = !dry_run && !verbose;
     let mut t = task.clone();
     t.flags.progress = false;
-    if quiet {
+    if verbose {
+        t.flags.verbose = true;
+    } else if quiet {
         t.flags.verbose = false;
     }
     rsync::build_args_with(
@@ -429,6 +431,15 @@ mod tests {
     #[test]
     fn verbose_keeps_rsyncs_full_output() {
         let t = task("photos", "/src/", "/dst/");
+        let args = headless_args(&t, false, true);
+        assert!(!args.contains(&"-q".to_string()));
+        assert!(args.contains(&"-v".to_string()));
+    }
+
+    #[test]
+    fn verbose_restores_output_for_a_task_that_turned_it_off() {
+        let mut t = task("photos", "/src/", "/dst/");
+        t.flags.verbose = false;
         let args = headless_args(&t, false, true);
         assert!(!args.contains(&"-q".to_string()));
         assert!(args.contains(&"-v".to_string()));
