@@ -52,6 +52,12 @@ fn destructive(task: &Task) -> bool {
     task.flags.delete || task.flags.delete_excluded
 }
 
+fn headless_args(task: &Task, dry_run: bool) -> Vec<String> {
+    let mut t = task.clone();
+    t.flags.progress = false;
+    rsync::build_args(&t, dry_run)
+}
+
 pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> Result<i32> {
     let tasks = match select(profiles, target) {
         Ok(t) => t,
@@ -181,6 +187,28 @@ mod tests {
         bad.flags.delete = true;
         let ps = vec![profile(vec![task("music", "/src2/", "/dst2/"), bad])];
         assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+    }
+
+    #[test]
+    fn headless_args_never_request_progress() {
+        let mut t = task("photos", "/src/", "/dst/");
+        assert!(t.flags.progress);
+        let args = headless_args(&t, false);
+        assert!(!args.contains(&"--info=progress2".to_string()));
+        assert!(args.contains(&"-a".to_string()));
+        assert!(!args.contains(&"-n".to_string()));
+
+        t.flags.progress = false;
+        assert!(!headless_args(&t, false).contains(&"--info=progress2".to_string()));
+    }
+
+    #[test]
+    fn headless_args_still_pass_dry_run_flags() {
+        let t = task("photos", "/src/", "/dst/");
+        let args = headless_args(&t, true);
+        assert!(args.contains(&"-n".to_string()));
+        assert!(args.contains(&"--itemize-changes".to_string()));
+        assert!(args.contains(&"--stats".to_string()));
     }
 
     #[test]
