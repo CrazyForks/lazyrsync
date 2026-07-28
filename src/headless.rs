@@ -112,7 +112,7 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
         let code = match spawn_task(t, dry_run) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("error: {}: {e}", t.id);
+                eprintln!("error: {}: {e:#}", t.id);
                 COULD_NOT_START
             }
         };
@@ -461,6 +461,6 @@ mod tests {
         let code = run(&ps, "backups", false, false);
         let _ = std::fs::remove_dir_all(&base);
 
-        assert_eq!(code, COULD_NOT_START);
+        assert_eq!(code, 3, "a task that could not start must exit 3, never 1");
     }
 }
