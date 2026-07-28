@@ -48,8 +48,11 @@ fn select<'a>(profiles: &'a [Profile], target: &str) -> Result<Vec<&'a Task>> {
     }
 }
 
+fn destructive(task: &Task) -> bool {
+    task.flags.delete || task.flags.delete_excluded
+}
+
 pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> Result<i32> {
-    let _ = (dry_run, yes);
     let tasks = match select(profiles, target) {
         Ok(t) => t,
         Err(e) => {
@@ -57,6 +60,20 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> Resu
             return Ok(2);
         }
     };
+    if !yes && !dry_run {
+        let blocked: Vec<&str> = tasks
+            .iter()
+            .filter(|t| destructive(t))
+            .map(|t| t.id.as_str())
+            .collect();
+        if !blocked.is_empty() {
+            eprintln!(
+                "error: nothing ran — these tasks delete files at the destination and need --yes: {}",
+                blocked.join(", ")
+            );
+            return Ok(1);
+        }
+    }
     let _ = tasks;
     Ok(0)
 }
@@ -124,5 +141,53 @@ mod tests {
         let picked = select(&ps, "backups/music").unwrap();
         assert_eq!(picked.len(), 1);
         assert_eq!(picked[0].id, "music");
+    }
+
+    #[test]
+    fn delete_task_without_yes_returns_1() {
+        let mut t = task("photos", "/src/", "/dst/");
+        t.flags.delete = true;
+        let ps = vec![profile(vec![t])];
+        assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+    }
+
+    #[test]
+    fn delete_excluded_task_without_yes_returns_1() {
+        let mut t = task("photos", "/src/", "/dst/");
+        t.flags.delete_excluded = true;
+        let ps = vec![profile(vec![t])];
+        assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+    }
+
+    #[test]
+    fn dry_run_is_not_refused_even_with_delete() {
+        let mut t = task("photos", "/src/", "/dst/");
+        t.flags.delete = true;
+        let ps = vec![profile(vec![t])];
+        assert_ne!(run(&ps, "backups", true, false).unwrap(), 1);
+    }
+
+    #[test]
+    fn yes_lets_a_destructive_task_past_the_gate() {
+        let mut t = task("photos", "/src/", "/dst/");
+        t.flags.delete = true;
+        let ps = vec![profile(vec![t])];
+        assert_ne!(run(&ps, "backups", false, true).unwrap(), 1);
+    }
+
+    #[test]
+    fn one_destructive_task_blocks_the_whole_batch() {
+        let mut bad = task("photos", "/src/", "/dst/");
+        bad.flags.delete = true;
+        let ps = vec![profile(vec![task("music", "/src2/", "/dst2/"), bad])];
+        assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+    }
+
+    #[test]
+    fn selecting_a_safe_task_from_a_profile_with_a_destructive_one_is_not_refused() {
+        let mut bad = task("photos", "/src/", "/dst/");
+        bad.flags.delete = true;
+        let ps = vec![profile(vec![task("music", "/src2/", "/dst2/"), bad])];
+        assert_ne!(run(&ps, "backups/music", false, false).unwrap(), 1);
     }
 }
