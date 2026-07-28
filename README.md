@@ -315,6 +315,96 @@ Profiles and settings live under `$XDG_CONFIG_HOME/lazyrsync/` (typically
 - `profiles.toml` — your profiles and tasks
 - `settings.toml` — preferences (theme, hints, confirmation prompts)
 
+If `XDG_CONFIG_HOME` is unset, the path falls back to
+`~/.config/lazyrsync/profiles.toml`.
+
+### `profiles.toml`
+
+The TUI writes this file for you, but it is a supported hand-editable format —
+useful for provisioning with Ansible or a dotfiles repo alongside
+[headless runs](#headless--scheduling). Every key below is shown with its
+default:
+
+```toml
+[[profile]]
+name = "backups"                 # required
+description = "nightly"          # ""
+
+[[profile.task]]
+label  = "photos"                # required
+source = "/home/me/Pictures/"    # required
+dest   = "/mnt/nas/pics/{now:%Y-%m-%d}/"
+id     = "photos-3f2a"           # auto-generated from label + source/dest
+action = "sync"                  # sync | snapshot
+
+[profile.task.flags]
+archive = true
+compress = true
+verbose = true
+human = true
+progress = true
+partial = true
+delete = false                   # destructive — mirrors deletions to dest
+delete_excluded = false          # destructive — deletes excluded files at dest
+backup = false
+update = false
+checksum = false
+size_only = false
+existing = false
+ignore_existing = false
+bwlimit_kbps = 0                 # 0 = unlimited
+hardlinks = false
+acls = false
+xattrs = false
+
+[profile.task.filters]
+excludes = []
+includes = []
+exclude_from = ""
+include_from = ""
+files_from = ""
+filter = []
+
+[profile.task.ssh]
+port = 22
+keyfile = ""
+extra = ""
+
+[profile.task.advanced]
+raw_args = ""
+```
+
+A profile holds one or more tasks; every section except `[[profile]]`,
+`label` and `source` may be omitted. lazyrsync also writes `created` and
+`last_files` bookkeeping keys, which you can leave out.
+
+`source` and `dest` accept the placeholders described under
+[Dynamic paths](#dynamic-paths) — `{now:%Y-%m-%d}`, `{utcnow:…}`,
+`{hostname}`, `{user}`, `$VAR`, `${VAR}` and `~` — resolved on every run.
+
+With `action = "snapshot"`, `dest` is the parent directory: lazyrsync picks the
+next numbered subdirectory and builds the `--link-dest` chain to the previous
+one at run time, so each run keeps a hardlinked version. See
+[Snapshots](#snapshots).
+
+**Unknown keys are an error, not a warning.** A misspelled key would otherwise
+be dropped in silence and its default used in place — for `excludes` that means
+running with no exclusions at all, which on a `delete = true` task mirrors away
+everything you meant to skip. lazyrsync instead refuses to load the file and
+names the offending key:
+
+```console
+$ lazyrsync run backups
+error: parsing /home/me/.config/lazyrsync/profiles.toml: TOML parse error at line 13, column 1
+   |
+13 | exclude = ["node_modules/"]
+   | ^^^^^^^
+unknown field `exclude`, expected one of `excludes`, `includes`, `exclude_from`, `include_from`, `files_from`, `filter`
+```
+
+One consequence: a `profiles.toml` written by a newer lazyrsync may fail to
+load on an older binary rather than being partially ignored.
+
 ### Confirmation prompts
 
 Every prompt has its own opt-out in `settings.toml`, all `false` by default:
