@@ -50,7 +50,8 @@ cargo fmt              # format
 
 | File | Responsibility |
 |------|----------------|
-| `main.rs` | CLI entry (clap); launches the TUI or runs headless subcommands |
+| `main.rs` | CLI entry (clap); thin router — launches the TUI or dispatches to headless.rs |
+| `headless.rs` | Headless subcommand implementations (`list`, `run`) — spawns rsync with stdio inherited |
 | `app.rs` | `App` router + `Ctx`/`Cmd`/`Component` trait + `Screen`/`Overlay` enums + event loop |
 | `screens/browse/` | `Browse` component split into `mod.rs` (state + trait), `render.rs` (draw), `input.rs` (keys/mouse/actions) |
 | `screens/run.rs` | `Run` component: run dashboard + run engine pump (`tick`) |

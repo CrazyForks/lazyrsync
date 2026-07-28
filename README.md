@@ -26,6 +26,7 @@ can't reach.
 - [Features](#features)
 - [Install](#install)
 - [Quickstart](#quickstart)
+- [Headless & scheduling](#headless--scheduling)
 - [Keybindings](#keybindings)
 - [Configuration](#configuration)
 - [Contributing](#contributing)
@@ -118,17 +119,173 @@ A task is just **Source → Destination**, exactly like the rsync command line �
 no push/pull, no separate "remote" field. A trailing `/` on the Source copies
 its _contents_; without it, the folder itself is copied.
 
-### Resolve / inspect (headless)
+## Headless & scheduling
 
-lazyrsync can print the exact rsync command a profile resolves to — handy for
-review or dropping into a script. Running transfers headlessly isn't wired up
-yet; use the TUI to actually run them.
+Every profile you build in the TUI also runs without it, so the transfer you
+verified by hand is the exact one your scheduler runs at 2am.
 
 ```bash
-lazyrsync list            # list profiles and their resolved rsync commands
-lazyrsync run NAME        # print the resolved command(s) for a profile
-lazyrsync run NAME -n     # print the dry-run form (with -n)
+lazyrsync list                        # profiles, task ids, resolved rsync commands
+lazyrsync run backups                 # every task in the profile
+lazyrsync run backups/photos-3f2a     # a single task, by id from `list`
+lazyrsync run backups -n              # real dry run, changes nothing
+lazyrsync run backups --yes           # required if any task uses --delete
+lazyrsync run backups -v              # add rsync's own output for each task
 ```
+
+Flags compose freely — `lazyrsync run backups/photos-3f2a -n --yes` is valid.
+(`list` prints the command with the TUI's `--info=progress2` flag; a headless
+run drops it, since there's no progress bar to feed. A headless `-n` also drops
+`--stats`, which only the TUI's preview parser reads — you get rsync's itemized
+diff without the fourteen-line statistics block after every task.)
+
+A real run passes rsync `-q`, so you get **one line per task** and nothing
+else — rsync still prints its errors, which is the only chatter worth mailing.
+`-v`/`--verbose` opts back into the full log per task. A dry run is **never**
+quiet: the itemized diff is the whole point of `-n`, so `-n` shows it with or
+without `-v`.
+
+Why not just point cron at `rsync` directly? For a plain Sync you could. A
+**Snapshot** you can't: the numbered destination directory and the
+`--link-dest` chain are computed at run time by scanning the destination, so
+the command differs on every run — `1/` links against nothing, `2/` links
+against `1/`, and so on. No static crontab line can express that.
+`lazyrsync run` resolves it fresh each time.
+
+### Ordering
+
+Tasks run in the order `lazyrsync list` shows them, which is **not** the order
+they appear in `profiles.toml` — the loader sorts by recency. Check `list`
+before you schedule anything that assumes an order.
+
+A failing task doesn't stop the rest. Every task gets its turn, then you get a
+summary and a non-zero exit code — so one broken source leaves less data
+unprotected than aborting the batch would.
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| 0 | every task succeeded — or the profile has no tasks, which says so on stderr |
+| 1 | refused: a task uses `--delete` and `--yes` was absent; nothing ran |
+| 2 | no such profile or task id, or the config is missing or failed to load |
+| 3 | a task couldn't be started, or was killed by a signal |
+| _n_ | the first failing task's own rsync exit code |
+
+rsync's exit 24 — source files vanished mid-transfer — counts as success.
+
+rsync's own exit codes 1, 2 and 3 overlap these, so the status alone isn't
+always conclusive; read the message. A refusal always says `nothing ran`
+explicitly, and a task that never started ends its line with `exit 3`.
+
+### Output streams
+
+Successful task lines and the success summary go to **stdout**. Failed task
+lines and the summary-when-something-failed go to **stderr**. So:
+
+```bash
+lazyrsync run backups >/dev/null
+```
+
+is completely silent when every task succeeds, and produces output only when
+something needs your attention — which is what makes cron's mail-on-output
+behaviour useful instead of noisy.
+
+Each task gets one styled line: a counter, `✔`/`✗`, the task's label, and then
+elapsed time if it worked or the exit code and the **task id** if it didn't —
+the id being what you paste back into `lazyrsync run backups/<id>` to retry
+just that one. Colour is dropped when the stream isn't a terminal, or when
+`NO_COLOR` is set — cron mail and journald get plain text.
+
+A run where one task fails looks like this:
+
+```
+[1/3] ✔ Documents  1.5s
+rsync: [sender] change_dir "/mnt/camera" failed: No such file or directory (2)
+rsync error: some files/attrs were not transferred (see previous errors) (code 23) at main.c(1347) [sender=3.4.3]
+[2/3] ✗ Photos     exit 23  photos-3f2a
+[3/3] ✔ Music      0.0s
+
+3 tasks: 2 ok, 1 failed
+```
+
+and like this under `>/dev/null` — which is exactly what cron mails you:
+
+```
+rsync: [sender] change_dir "/mnt/camera" failed: No such file or directory (2)
+rsync error: some files/attrs were not transferred (see previous errors) (code 23) at main.c(1347) [sender=3.4.3]
+[2/3] ✗ Photos     exit 23  photos-3f2a
+3 tasks: 2 ok, 1 failed
+```
+
+### Dry runs are never refused
+
+`lazyrsync run backups -n` works on a profile containing `--delete` tasks
+without `--yes`, because `--dry-run` changes nothing and no destination
+directories are created. Preview first, then add `--yes` only to the command
+you actually schedule.
+
+The `--delete` gate reads a task's `--delete` and `--delete-excluded`
+toggles. It does **not** parse the Advanced raw-args field, so a `--delete`
+written by hand there gets past the gate — the same caveat the TUI carries.
+
+### crontab
+
+```cron
+30 2 * * * /usr/bin/lazyrsync run backups >/dev/null
+```
+
+Add `--yes` only if the profile contains a `--delete` task.
+
+### systemd timer
+
+Prefer this over cron: `Persistent=true` catches up a run missed while the
+machine was off, and journald keeps the output.
+
+```ini
+# ~/.config/systemd/user/lazyrsync-backups.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lazyrsync run backups
+
+# ~/.config/systemd/user/lazyrsync-backups.timer
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user enable --now lazyrsync-backups.timer
+journalctl --user -u lazyrsync-backups        # what the last run did
+```
+
+### Per-task schedules
+
+Because a task has its own address, each one can run on its own clock:
+
+```cron
+0 * * * *  /usr/bin/lazyrsync run backups/docs-a91c >/dev/null
+30 2 * * 0 /usr/bin/lazyrsync run backups/photos-3f2a >/dev/null
+```
+
+### Three things that break scheduled runs
+
+- **Use the absolute path.** cron's `PATH` is minimal and won't find a binary
+  in `~/.cargo/bin`. `command -v lazyrsync` tells you what to write.
+- **SSH keys must be passwordless.** Remote tasks run under
+  `ssh -o BatchMode=yes`, so ssh fails fast instead of hanging on a prompt —
+  but there's no ssh-agent under cron. Use a passwordless key, or set the
+  task's SSH key file.
+- **Don't expect a scheduled run to tell you what moved.** It prints one line
+  per task and nothing else, so the exit code is the signal, and cron mails you
+  on failure by itself. Add `-v` when you rerun by hand to debug.
+
+Dated destinations need no extra flags — path fields expand `{now:%Y-%m-%d}`,
+`{utcnow:…}`, `{hostname}`, `{user}`, `$VAR` and `~` on every run, headless
+included. See [Dynamic paths](#dynamic-paths).
 
 ## Keybindings
 
