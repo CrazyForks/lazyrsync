@@ -1,3 +1,5 @@
+use std::process::{Command, Stdio};
+
 use anyhow::{anyhow, Result};
 
 use crate::profile::{Profile, Task};
@@ -58,12 +60,30 @@ fn headless_args(task: &Task, dry_run: bool) -> Vec<String> {
     rsync::build_args(&t, dry_run)
 }
 
-pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> Result<i32> {
+const COULD_NOT_START: i32 = 3;
+const VANISHED_SOURCE_FILES: i32 = 24;
+
+fn succeeded(code: i32) -> bool {
+    code == 0 || code == VANISHED_SOURCE_FILES
+}
+
+fn spawn_task(task: &Task, dry_run: bool) -> Result<i32> {
+    if !dry_run {
+        rsync::prepare_dest(task)?;
+    }
+    let status = Command::new("rsync")
+        .args(headless_args(task, dry_run))
+        .stdin(Stdio::null())
+        .status()?;
+    Ok(status.code().unwrap_or(COULD_NOT_START))
+}
+
+pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 {
     let tasks = match select(profiles, target) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("error: {e}");
-            return Ok(2);
+            return 2;
         }
     };
     if !yes && !dry_run {
@@ -77,11 +97,46 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> Resu
                 "error: nothing ran — these tasks delete files at the destination and need --yes: {}",
                 blocked.join(", ")
             );
-            return Ok(1);
+            return 1;
         }
     }
-    let _ = tasks;
-    Ok(0)
+    if tasks.is_empty() {
+        eprintln!("nothing to do: profile '{target}' has no tasks");
+        return 0;
+    }
+    let mut ok = 0;
+    let mut failed = 0;
+    let mut first_failure = 0;
+    for t in &tasks {
+        println!("→ {}", t.label);
+        let code = match spawn_task(t, dry_run) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: {}: {e}", t.id);
+                COULD_NOT_START
+            }
+        };
+        if succeeded(code) {
+            ok += 1;
+        } else {
+            eprintln!("✗ {} failed: exit {code}", t.id);
+            failed += 1;
+            if first_failure == 0 {
+                first_failure = code;
+            }
+        }
+    }
+    let summary = format!(
+        "{} task{}: {ok} ok, {failed} failed",
+        tasks.len(),
+        if tasks.len() == 1 { "" } else { "s" }
+    );
+    if failed > 0 {
+        eprintln!("{summary}");
+    } else {
+        println!("{summary}");
+    }
+    first_failure
 }
 
 #[cfg(test)]
@@ -101,10 +156,106 @@ mod tests {
         p
     }
 
+    fn rsync_missing() -> bool {
+        std::process::Command::new("rsync")
+            .arg("--version")
+            .output()
+            .is_err()
+    }
+
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!("lr-cli-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        base
+    }
+
+    fn seed_source(base: &std::path::Path) -> std::path::PathBuf {
+        let src = base.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+        src
+    }
+
+    #[test]
+    fn transfers_a_task_and_returns_0() {
+        if rsync_missing() {
+            eprintln!("rsync not installed — skipping");
+            return;
+        }
+        let base = scratch("ok");
+        let src = seed_source(&base);
+        let dst = base.join("dst");
+        let ps = vec![profile(vec![task(
+            "photos",
+            &format!("{}/", src.display()),
+            &format!("{}/", dst.display()),
+        )])];
+
+        let code = run(&ps, "backups", false, false);
+        let landed = dst.join("a.txt").is_file();
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(code, 0);
+        assert!(landed, "file should have transferred");
+    }
+
+    #[test]
+    fn continues_past_a_failing_task_and_returns_its_code() {
+        if rsync_missing() {
+            eprintln!("rsync not installed — skipping");
+            return;
+        }
+        let base = scratch("mixed");
+        let src = seed_source(&base);
+        let good_dst = base.join("good");
+        let bad_dst = base.join("bad");
+        let ps = vec![profile(vec![
+            task(
+                "missing",
+                &format!("{}/nope/", base.display()),
+                &format!("{}/", bad_dst.display()),
+            ),
+            task(
+                "photos",
+                &format!("{}/", src.display()),
+                &format!("{}/", good_dst.display()),
+            ),
+        ])];
+
+        let code = run(&ps, "backups", false, false);
+        let later_task_ran = good_dst.join("a.txt").is_file();
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(code, 23, "rsync's own exit code must be propagated");
+        assert!(later_task_ran, "the task after a failure must still run");
+    }
+
+    #[test]
+    fn dry_run_creates_no_destination_directories() {
+        if rsync_missing() {
+            eprintln!("rsync not installed — skipping");
+            return;
+        }
+        let base = scratch("dry");
+        let src = seed_source(&base);
+        let dst = base.join("nested/deep/dst");
+        let ps = vec![profile(vec![task(
+            "photos",
+            &format!("{}/", src.display()),
+            &format!("{}/", dst.display()),
+        )])];
+
+        let _ = run(&ps, "backups", true, false);
+        let created = base.join("nested").exists();
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert!(!created, "dry run must not create destination directories");
+    }
+
     #[test]
     fn unknown_profile_returns_2() {
         let ps = vec![profile(vec![task("photos", "/src/", "/dst/")])];
-        assert_eq!(run(&ps, "nope", false, false).unwrap(), 2);
+        assert_eq!(run(&ps, "nope", false, false), 2);
         assert!(select(&ps, "nope")
             .unwrap_err()
             .to_string()
@@ -114,7 +265,7 @@ mod tests {
     #[test]
     fn unknown_task_id_returns_2() {
         let ps = vec![profile(vec![task("photos", "/src/", "/dst/")])];
-        assert_eq!(run(&ps, "backups/nope", false, false).unwrap(), 2);
+        assert_eq!(run(&ps, "backups/nope", false, false), 2);
         assert!(select(&ps, "backups/nope")
             .unwrap_err()
             .to_string()
@@ -154,7 +305,7 @@ mod tests {
         let mut t = task("photos", "/src/", "/dst/");
         t.flags.delete = true;
         let ps = vec![profile(vec![t])];
-        assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+        assert_eq!(run(&ps, "backups", false, false), 1);
     }
 
     #[test]
@@ -162,23 +313,41 @@ mod tests {
         let mut t = task("photos", "/src/", "/dst/");
         t.flags.delete_excluded = true;
         let ps = vec![profile(vec![t])];
-        assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+        assert_eq!(run(&ps, "backups", false, false), 1);
     }
 
     #[test]
     fn dry_run_is_not_refused_even_with_delete() {
-        let mut t = task("photos", "/src/", "/dst/");
+        let base = scratch("dry-delete");
+        let mut t = task(
+            "photos",
+            &format!("{}/src/", base.display()),
+            &format!("{}/dst/", base.display()),
+        );
         t.flags.delete = true;
         let ps = vec![profile(vec![t])];
-        assert_ne!(run(&ps, "backups", true, false).unwrap(), 1);
+
+        let code = run(&ps, "backups", true, false);
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_ne!(code, 1);
     }
 
     #[test]
     fn yes_lets_a_destructive_task_past_the_gate() {
-        let mut t = task("photos", "/src/", "/dst/");
+        let base = scratch("yes-gate");
+        let mut t = task(
+            "photos",
+            &format!("{}/src/", base.display()),
+            &format!("{}/dst/", base.display()),
+        );
         t.flags.delete = true;
         let ps = vec![profile(vec![t])];
-        assert_ne!(run(&ps, "backups", false, true).unwrap(), 1);
+
+        let code = run(&ps, "backups", false, true);
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_ne!(code, 1);
     }
 
     #[test]
@@ -186,7 +355,7 @@ mod tests {
         let mut bad = task("photos", "/src/", "/dst/");
         bad.flags.delete = true;
         let ps = vec![profile(vec![task("music", "/src2/", "/dst2/"), bad])];
-        assert_eq!(run(&ps, "backups", false, false).unwrap(), 1);
+        assert_eq!(run(&ps, "backups", false, false), 1);
     }
 
     #[test]
@@ -213,9 +382,85 @@ mod tests {
 
     #[test]
     fn selecting_a_safe_task_from_a_profile_with_a_destructive_one_is_not_refused() {
+        let base = scratch("safe-pick");
         let mut bad = task("photos", "/src/", "/dst/");
         bad.flags.delete = true;
-        let ps = vec![profile(vec![task("music", "/src2/", "/dst2/"), bad])];
-        assert_ne!(run(&ps, "backups/music", false, false).unwrap(), 1);
+        let safe = task(
+            "music",
+            &format!("{}/src2/", base.display()),
+            &format!("{}/dst2/", base.display()),
+        );
+        let ps = vec![profile(vec![safe, bad])];
+
+        let code = run(&ps, "backups/music", false, false);
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_ne!(code, 1);
+    }
+
+    #[test]
+    fn empty_profile_says_nothing_to_do_and_returns_0() {
+        let ps = vec![profile(vec![])];
+        assert_eq!(run(&ps, "backups", false, false), 0);
+    }
+
+    #[test]
+    fn vanished_source_files_still_count_as_success() {
+        assert!(succeeded(0));
+        assert!(succeeded(24));
+        assert!(!succeeded(23));
+        assert!(!succeeded(COULD_NOT_START));
+    }
+
+    #[test]
+    fn dry_run_transfers_nothing_into_an_existing_destination() {
+        if rsync_missing() {
+            eprintln!("rsync not installed — skipping");
+            return;
+        }
+        let base = scratch("dry-existing");
+        let src = seed_source(&base);
+        let dst = base.join("dst");
+        std::fs::create_dir_all(&dst).unwrap();
+        let ps = vec![profile(vec![task(
+            "photos",
+            &format!("{}/", src.display()),
+            &format!("{}/", dst.display()),
+        )])];
+
+        let code = run(&ps, "backups", true, false);
+        let landed = dst.join("a.txt").exists();
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(code, 0, "a clean dry run should succeed");
+        assert!(!landed, "dry run must not transfer files");
+    }
+
+    #[test]
+    fn the_first_failing_code_is_returned_not_the_last() {
+        if rsync_missing() {
+            eprintln!("rsync not installed — skipping");
+            return;
+        }
+        let base = scratch("first-code");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("afile"), "not a directory").unwrap();
+        let ps = vec![profile(vec![
+            task(
+                "unstartable",
+                &format!("{}/src/", base.display()),
+                &format!("{}/afile/sub/", base.display()),
+            ),
+            task(
+                "missing",
+                &format!("{}/nope/", base.display()),
+                &format!("{}/dst/", base.display()),
+            ),
+        ])];
+
+        let code = run(&ps, "backups", false, false);
+        let _ = std::fs::remove_dir_all(&base);
+
+        assert_eq!(code, COULD_NOT_START);
     }
 }
