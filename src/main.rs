@@ -1,5 +1,6 @@
 mod app;
 mod editor;
+mod headless;
 mod paths;
 mod popups;
 mod preview;
@@ -21,14 +22,46 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Run a profile's tasks without the TUI")]
     Run {
-        profile: String,
+        #[arg(
+            value_name = "PROFILE[/TASK]",
+            help = "Profile to run, or PROFILE/TASK for a single task (ids come from `list`)"
+        )]
+        target: String,
 
-        #[arg(short = 'n', long)]
+        #[arg(
+            short = 'n',
+            long,
+            help = "Trial run: report what would change, change nothing"
+        )]
         dry_run: bool,
+
+        #[arg(
+            long,
+            help = "Allow tasks that delete files at the destination (not needed with -n)"
+        )]
+        yes: bool,
+
+        #[arg(short = 'v', long, help = "Show rsync's full output for each task")]
+        verbose: bool,
     },
 
+    #[command(about = "List profiles, task ids, and their resolved rsync commands")]
     List,
+}
+
+const ERROR_LABEL: anstyle::Style = anstyle::Style::new()
+    .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Red)))
+    .bold();
+
+fn config_error(e: anyhow::Error) -> ! {
+    anstream::eprintln!("{ERROR_LABEL}error:{ERROR_LABEL:#} {e:#}");
+    std::process::exit(2);
+}
+
+fn load_or_exit() -> store::Store {
+    store::Store::load(false).unwrap_or_else(|e| config_error(e))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -36,35 +69,26 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::List) => {
-            let store = store::Store::load()?;
-            if store.profiles.is_empty() {
-                println!("No profiles. Add one in the TUI (run `lazyrsync`).");
-            }
-            for p in &store.profiles {
-                println!("{}", p.name);
-                for t in &p.tasks {
-                    println!("  {}", t.id);
-                    println!("      {}", rsync::resolved_command(t, false));
-                }
-                println!();
-            }
+            headless::list(&load_or_exit().profiles);
             Ok(())
         }
-        Some(Command::Run { profile, dry_run }) => {
-            let store = store::Store::load()?;
-            let p = store
-                .profiles
-                .iter()
-                .find(|p| p.name == profile)
-                .ok_or_else(|| anyhow::anyhow!("no profile named '{profile}'"))?;
-            for t in &p.tasks {
-                println!("{}", rsync::resolved_command(t, dry_run));
-            }
-            eprintln!("(execution engine not wired yet — command shown above)");
-            Ok(())
+        Some(Command::Run {
+            target,
+            dry_run,
+            yes,
+            verbose,
+        }) => {
+            let store = load_or_exit();
+            std::process::exit(headless::run(
+                &store.profiles,
+                &target,
+                dry_run,
+                yes,
+                verbose,
+            ));
         }
         None => {
-            let mut app = app::App::new()?;
+            let mut app = app::App::new().unwrap_or_else(|e| config_error(e));
             let mut terminal = ratatui::init();
             let prev_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {

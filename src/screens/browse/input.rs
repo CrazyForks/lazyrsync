@@ -99,10 +99,12 @@ impl Browse {
                 Cmd::None
             }
             KeyCode::Char(' ') if self.focus == 1 => {
-                let enabling_delete = self.flag == editor::delete_flag_index()
-                    && cx.active_task().is_some_and(|t| !t.flags.delete);
-                if enabling_delete && !cx.settings.skip_delete_warning {
-                    return Cmd::Overlay(Overlay::Alert(Alert::enable_delete()));
+                let becoming_destructive = editor::destructive_flag_label(self.flag)
+                    .filter(|_| cx.active_task().is_some_and(|t| !t.destructive()));
+                if let Some(label) = becoming_destructive {
+                    if !cx.settings.skip_delete_warning {
+                        return Cmd::Overlay(Overlay::Alert(Alert::enable_flag(self.flag, label)));
+                    }
                 }
                 if let Some(p) = cx.store.profiles.get_mut(cx.profile) {
                     if let Some(t) = p.tasks.get_mut(cx.task) {
@@ -407,12 +409,10 @@ impl Browse {
 
     fn delete(&mut self, cx: &mut Ctx) -> Cmd {
         if cx.subtab == 1 {
-            let Some(p) = cx.store.profiles.get(cx.pcursor) else {
+            let Some(name) = cx.store.profiles.get(cx.pcursor).map(|p| p.name.clone()) else {
                 return Cmd::None;
             };
-            return Cmd::Overlay(Overlay::ConfirmDelete(ConfirmDelete::profile(
-                p.name.clone(),
-            )));
+            return Self::request_delete(ConfirmDelete::profile(name), cx);
         }
         let ids: Vec<String> = if let Some((lo, hi)) = self.visual_range() {
             match cx.active_profile() {
@@ -431,7 +431,7 @@ impl Browse {
         if ids.is_empty() {
             return Cmd::None;
         }
-        Cmd::Overlay(Overlay::ConfirmDelete(ConfirmDelete::tasks(ids)))
+        Self::request_delete(ConfirmDelete::tasks(ids), cx)
     }
 
     fn clear_filters(&mut self, cx: &mut Ctx) -> Cmd {
@@ -473,11 +473,11 @@ impl Browse {
                 return Cmd::None;
             };
             let all: Vec<Task> = (lo..=hi).filter_map(|i| p.tasks.get(i).cloned()).collect();
-            return Self::request_run(all);
+            return Self::request_run(all, cx.settings.skip_run_confirm);
         }
         self.select_task(cx);
         match cx.active_task().cloned() {
-            Some(t) => Self::request_run(vec![t]),
+            Some(t) => Self::request_run(vec![t], cx.settings.skip_run_confirm),
             None => {
                 cx.push_log(LogKind::Warn, "no task to run");
                 Cmd::None
@@ -485,12 +485,22 @@ impl Browse {
         }
     }
 
-    fn request_run(batch: Vec<Task>) -> Cmd {
-        match batch.len() {
-            0 => Cmd::None,
-            1 => Cmd::RequestRun(batch),
-            _ => Cmd::Overlay(Overlay::ConfirmRun(ConfirmRun::new(batch))),
+    fn request_run(batch: Vec<Task>, skip_run_confirm: bool) -> Cmd {
+        if batch.is_empty() {
+            return Cmd::None;
         }
+        if skip_run_confirm {
+            return Cmd::RequestRun(batch);
+        }
+        Cmd::Overlay(Overlay::ConfirmRun(ConfirmRun::new(batch)))
+    }
+
+    fn request_delete(confirm: ConfirmDelete, cx: &mut Ctx) -> Cmd {
+        if cx.settings.skip_remove_confirm {
+            confirm.apply(cx);
+            return Cmd::None;
+        }
+        Cmd::Overlay(Overlay::ConfirmDelete(confirm))
     }
 
     fn run_all(&self, cx: &mut Ctx) -> Cmd {
@@ -501,7 +511,7 @@ impl Browse {
             cx.push_log(LogKind::Warn, "profile has no tasks");
             return Cmd::None;
         }
-        Self::request_run(p.tasks.clone())
+        Self::request_run(p.tasks.clone(), cx.settings.skip_run_confirm)
     }
 
     fn start_preview(&mut self, cx: &mut Ctx) {

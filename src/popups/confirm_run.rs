@@ -22,15 +22,22 @@ impl ConfirmRun {
 
     pub fn draw(&self, frame: &mut Frame, area: Rect, cx: &Ctx) {
         let n = self.batch.len();
-        let dels = self.batch.iter().filter(|t| t.flags.delete).count();
+        let dels = self.batch.iter().filter(|t| t.destructive()).count();
 
         let max_rows = (area.height as usize).saturating_sub(8).clamp(3, n.max(3));
 
+        let rows: Vec<&Task> = self.batch.iter().take(max_rows).collect();
+        let id_w = rows.iter().map(|t| t.id.chars().count()).max().unwrap_or(0);
+
         let mut lines = vec![Line::from("")];
-        for t in self.batch.iter().take(max_rows) {
-            let mut spans = vec![" • ".fg(secondary()), t.id.clone().fg(Color::Reset)];
-            if t.flags.delete {
-                spans.push("  --delete".fg(deleted()).bold());
+        for t in &rows {
+            let mut spans = vec![
+                " • ".fg(secondary()),
+                format!("{:<id_w$}", t.id).fg(Color::Reset),
+            ];
+            let flags = crate::editor::enabled_destructive_flags(&t.flags);
+            if !flags.is_empty() {
+                spans.push(format!("   {}", flags.join(" ")).fg(deleted()).bold());
             }
             lines.push(Line::from(spans));
         }
@@ -38,15 +45,18 @@ impl ConfirmRun {
             lines.push(Line::from(format!("   …and {} more", n - max_rows).dim()));
         }
         if dels > 0 {
+            let warning = if n == 1 {
+                "⚠ This deletes files at the destination.".to_string()
+            } else {
+                format!("⚠ {dels} of these delete files at the destination.")
+            };
             lines.push(Line::from(""));
-            lines.push(Line::from(
-                format!("⚠ {dels} of these use --delete — destination files will be removed.")
-                    .fg(deleted()),
-            ));
+            lines.push(Line::from(warning.fg(deleted())).centered());
         }
 
+        let run_label = if n == 1 { "Run" } else { "Run all" };
         let footer = if cx.settings.hints {
-            vec![hint_line(&[("<enter>", "Run all"), ("<esc>", "Cancel")])]
+            vec![hint_line(&[("<enter>", run_label), ("<esc>", "Cancel")])]
         } else {
             vec![]
         };
@@ -57,7 +67,11 @@ impl ConfirmRun {
                 Block::bordered()
                     .border_type(BorderType::Rounded)
                     .border_style(Style::new().fg(accent()).bold())
-                    .title(format!(" Run {n} tasks ").fg(accent()).bold()),
+                    .title(
+                        format!(" Run {n} task{} ", if n == 1 { "" } else { "s" })
+                            .fg(accent())
+                            .bold(),
+                    ),
             ),
             area,
         );

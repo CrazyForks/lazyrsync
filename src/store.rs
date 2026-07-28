@@ -11,12 +11,14 @@ struct ProfileFile {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredFile {
     #[serde(default, rename = "profile")]
     profiles: Vec<StoredProfile>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredProfile {
     name: String,
     #[serde(default)]
@@ -36,6 +38,7 @@ struct StoredProfile {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredTask {
     #[serde(default)]
     id: String,
@@ -158,6 +161,8 @@ fn config_dir() -> PathBuf {
 #[serde(default)]
 pub struct Settings {
     pub skip_delete_warning: bool,
+    pub skip_run_confirm: bool,
+    pub skip_remove_confirm: bool,
     pub hints: bool,
     pub last_profile: String,
     pub theme: crate::ui::ThemeSpec,
@@ -167,6 +172,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             skip_delete_warning: false,
+            skip_run_confirm: false,
+            skip_remove_confirm: false,
             hints: true,
             last_profile: String::new(),
             theme: crate::ui::ThemeSpec::default(),
@@ -223,7 +230,7 @@ impl Store {
         self.profiles[1..].sort_by_key(|p| std::cmp::Reverse(p.created));
     }
 
-    pub fn load() -> Result<Self> {
+    pub fn load(persist_backfill: bool) -> Result<Self> {
         let global_path = Self::global_path();
         let mut profiles = read_file(&global_path)?;
         let now = now_unix();
@@ -245,7 +252,7 @@ impl Store {
             profiles,
             global_path,
         };
-        if backfilled {
+        if persist_backfill && backfilled {
             let _ = store.save();
         }
         Ok(store)
@@ -384,6 +391,80 @@ destinations = ["/mnt/usb/"]
         let p: Profile = parsed.profiles.into_iter().next().unwrap().into();
         assert_eq!(p.tasks[0].dest, "/mnt/usb/");
         assert_eq!(p.tasks[0].action, Action::Sync);
+    }
+
+    fn parse_error(text: &str) -> String {
+        toml::from_str::<StoredFile>(text)
+            .err()
+            .expect("unknown key should be rejected")
+            .to_string()
+    }
+
+    #[test]
+    fn unknown_task_key_is_rejected() {
+        let typo = r#"
+[[profile]]
+name = "p"
+[[profile.task]]
+label = "t"
+source = "/home/me/data/"
+dst = "/mnt/usb/"
+"#;
+        let err = parse_error(typo);
+        assert!(err.contains("dst"), "error should name the field: {err}");
+    }
+
+    #[test]
+    fn misspelled_excludes_is_rejected_not_silently_empty() {
+        let typo = r#"
+[[profile]]
+name = "p"
+[[profile.task]]
+label = "t"
+source = "/home/me/data/"
+dest = "/mnt/usb/"
+
+[profile.task.flags]
+delete = true
+
+[profile.task.filters]
+exclude = ["node_modules/"]
+"#;
+        let err = parse_error(typo);
+        assert!(
+            err.contains("exclude"),
+            "error should name the field: {err}"
+        );
+    }
+
+    #[test]
+    fn unknown_profile_key_is_rejected() {
+        let typo = r#"
+[[profile]]
+name = "p"
+descripton = "typo"
+"#;
+        let err = parse_error(typo);
+        assert!(
+            err.contains("descripton"),
+            "error should name the field: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_error_names_the_file() {
+        let dir = std::env::temp_dir().join("lazyrsync-deny-unknown-test");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("profiles.toml");
+        fs::write(
+            &path,
+            "[[profile]]\nname = \"p\"\n[[profile.task]]\nlabel = \"t\"\nsource = \"/s/\"\nlabl = \"x\"\n",
+        )
+        .unwrap();
+        let err = format!("{:#}", read_file(&path).unwrap_err());
+        assert!(err.contains("labl"), "names the field: {err}");
+        assert!(err.contains("profiles.toml"), "names the file: {err}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

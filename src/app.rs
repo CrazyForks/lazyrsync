@@ -181,7 +181,7 @@ impl App {
     pub fn new() -> anyhow::Result<Self> {
         let settings = Settings::load();
         crate::ui::apply_theme(&settings.theme);
-        let mut store = Store::load()?;
+        let mut store = Store::load(true)?;
         let active = store
             .profiles
             .iter()

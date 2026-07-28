@@ -11,12 +11,7 @@ fn is_remote_path(p: &str) -> bool {
 }
 
 fn expand_local(path: &str) -> String {
-    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
-    match (path, home) {
-        ("~", Some(home)) => home,
-        (p, Some(home)) if p.starts_with("~/") => format!("{home}/{}", &p[2..]),
-        _ => path.to_string(),
-    }
+    crate::paths::expand_path(path)
 }
 
 pub fn split_args(s: &str) -> Vec<String> {
@@ -117,14 +112,28 @@ pub fn resolve(task: &Task) -> Endpoints {
     }
 }
 
+pub struct ArgOpts {
+    pub dry_run: bool,
+    pub stats: bool,
+    pub quiet: bool,
+}
+
 pub fn build_args(task: &Task, dry_run: bool) -> Vec<String> {
-    assemble(task, &resolve(task), dry_run)
+    build_args_with(
+        task,
+        ArgOpts {
+            dry_run,
+            stats: true,
+            quiet: false,
+        },
+    )
+}
+
+pub fn build_args_with(task: &Task, opts: ArgOpts) -> Vec<String> {
+    assemble(task, &resolve(task), opts)
 }
 
 pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
-    if !matches!(task.action, Action::Snapshot) {
-        return Ok(());
-    }
     let ep = resolve(task);
     if is_remote_path(&ep.dst) {
         return Ok(());
@@ -135,8 +144,9 @@ pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
     Ok(())
 }
 
-fn assemble(task: &Task, ep: &Endpoints, dry_run: bool) -> Vec<String> {
+fn assemble(task: &Task, ep: &Endpoints, opts: ArgOpts) -> Vec<String> {
     let f = &task.flags;
+    let dry_run = opts.dry_run;
     let mut args: Vec<String> = Vec::new();
 
     if f.archive {
@@ -156,6 +166,9 @@ fn assemble(task: &Task, ep: &Endpoints, dry_run: bool) -> Vec<String> {
     }
     if f.verbose {
         args.push("-v".into());
+    }
+    if opts.quiet {
+        args.push("-q".into());
     }
     if f.human && !dry_run {
         args.push("-h".into());
@@ -203,7 +216,9 @@ fn assemble(task: &Task, ep: &Endpoints, dry_run: bool) -> Vec<String> {
     if dry_run {
         args.push("-n".into());
         args.push("--itemize-changes".into());
-        args.push("--stats".into());
+        if opts.stats {
+            args.push("--stats".into());
+        }
     }
 
     for rule in &task.filters.filter {
@@ -358,6 +373,60 @@ mod tests {
     }
 
     #[test]
+    fn prepare_dest_creates_parents_for_a_nested_sync_dest() {
+        let base = std::env::temp_dir().join(format!("lr-nest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dst = base.join("dst/host/2026-07-27");
+        let p = Task::new("t", "/src/", format!("{}/", dst.display()));
+        prepare_dest(&p).unwrap();
+        assert!(
+            dst.parent().unwrap().is_dir(),
+            "missing parents of a sync dest should be created"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn nested_dest_transfers_against_real_rsync() {
+        use std::fs;
+        if std::process::Command::new("rsync")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("rsync not installed — skipping live nested-dest test");
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("lr-nest-run-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let src = base.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.txt"), "hello").unwrap();
+
+        let dst = base.join("dst/{hostname}/{now:%Y-%m-%d}");
+        let p = Task::new(
+            "t",
+            format!("{}/", src.display()),
+            format!("{}/", dst.display()),
+        );
+        prepare_dest(&p).unwrap();
+        let status = std::process::Command::new("rsync")
+            .args(build_args(&p, false))
+            .status()
+            .expect("spawn rsync");
+
+        let landed = resolve(&p).dst;
+        let copied = std::path::Path::new(&landed).join("a.txt");
+        let ok = status.success() && copied.is_file();
+        let _ = fs::remove_dir_all(&base);
+        assert!(
+            ok,
+            "nested dest should transfer: status={status:?} expected file at {}",
+            copied.display()
+        );
+    }
+
+    #[test]
     fn filter_file_paths_expand_tilde() {
         std::env::set_var("HOME", "/home/tester");
         let mut p = Task::new("t", "/src/", "/dst/");
@@ -377,6 +446,42 @@ mod tests {
         assert!(args.contains(&"-n".to_string()));
         assert!(args.contains(&"--itemize-changes".to_string()));
         assert!(args.contains(&"--stats".to_string()));
+    }
+
+    #[test]
+    fn without_stats_keeps_the_dry_run_diff_but_drops_the_stats_block() {
+        let p = Task::new("t", "/src/", "/dst/");
+        let args = build_args_with(
+            &p,
+            ArgOpts {
+                dry_run: true,
+                stats: false,
+                quiet: false,
+            },
+        );
+        assert!(args.contains(&"-n".to_string()));
+        assert!(args.contains(&"--itemize-changes".to_string()));
+        assert!(!args.contains(&"--stats".to_string()));
+    }
+
+    #[test]
+    fn quiet_emits_q_before_the_path_guard() {
+        let p = Task::new("t", "/src/", "/dst/");
+        let args = build_args_with(
+            &p,
+            ArgOpts {
+                dry_run: false,
+                stats: false,
+                quiet: true,
+            },
+        );
+        let q = args.iter().position(|a| a == "-q").expect("missing -q");
+        let guard = args.iter().position(|a| a == "--").expect("missing --");
+        assert!(
+            q < guard,
+            "-q must precede the end-of-options guard: {args:?}"
+        );
+        assert!(!build_args(&p, false).contains(&"-q".to_string()));
     }
 
     #[test]

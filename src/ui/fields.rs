@@ -103,10 +103,13 @@ fn plural_matches(n: usize) -> String {
 
 pub(crate) fn field_status(buffer: &str, focused: bool, is_dest: bool) -> (Color, Option<String>) {
     let b = buffer.trim();
-    if b.is_empty() || is_remote_buf(b) {
+    if b.is_empty() {
         return (accent(), None);
     }
-    let path = crate::paths::expand_tilde(b);
+    let path = crate::paths::expand_path(b);
+    if is_remote_buf(&path) {
+        return (accent(), None);
+    }
     if std::path::Path::new(&path).is_dir() {
         return (
             added(),
@@ -118,15 +121,57 @@ pub(crate) fn field_status(buffer: &str, focused: bool, is_dest: bool) -> (Color
         return (accent(), focused.then(|| plural_matches(hits.len())));
     }
     if is_dest {
-        let parent_ok = std::path::Path::new(&path)
+        let parent_exists = std::path::Path::new(&path)
             .parent()
             .is_none_or(|p| p.as_os_str().is_empty() || p.is_dir());
-        if parent_ok {
+        if parent_exists {
             (added(), focused.then(|| "new dir".into()))
         } else {
-            (deleted(), focused.then(|| "parent missing".into()))
+            (added(), focused.then(|| "new path".into()))
         }
     } else {
         (deleted(), focused.then(|| "not found".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dest_with_a_placeholder_resolves_before_checking_the_disk() {
+        let base = std::env::temp_dir().join(format!("lr-fields-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let typed = format!("{}/{{now:%Y-%m-%d}}/", base.display());
+        let (color, hint) = field_status(&typed, true, true);
+        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!(color, added());
+        assert_eq!(hint.as_deref(), Some("new dir"));
+    }
+
+    #[test]
+    fn a_formatted_placeholder_colon_is_not_mistaken_for_a_remote_host() {
+        let (_, hint) = field_status("~/backups/{now:%Y-%m-%d}/", true, true);
+        assert!(
+            hint.is_some(),
+            "a local tilde path with a formatted placeholder must still be checked, not treated as remote"
+        );
+    }
+
+    #[test]
+    fn a_real_remote_path_is_still_detected() {
+        let (_, hint) = field_status("me@vps:/backup/{now:%Y-%m-%d}/", true, true);
+        assert!(hint.is_none(), "remote paths should skip local disk checks");
+    }
+
+    #[test]
+    fn dest_with_creatable_parents_is_not_an_error() {
+        let base = std::env::temp_dir().join(format!("lr-fields-np-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let typed = format!("{}/{{hostname}}/{{now:%Y-%m-%d}}/", base.display());
+        let (color, hint) = field_status(&typed, true, true);
+        assert_eq!(color, added());
+        assert_eq!(hint.as_deref(), Some("new path"));
     }
 }
