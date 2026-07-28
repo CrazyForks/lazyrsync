@@ -142,6 +142,7 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
             }
         }
     }
+    anstream::println!();
     let count = tasks.len();
     let plural = if count == 1 { "" } else { "s" };
     let failed_value = if failed > 0 { ALERT_STRONG } else { VALUE };
