@@ -64,7 +64,7 @@ fn destructive(task: &Task) -> bool {
 fn headless_args(task: &Task, dry_run: bool) -> Vec<String> {
     let mut t = task.clone();
     t.flags.progress = false;
-    rsync::build_args(&t, dry_run)
+    rsync::build_args_without_stats(&t, dry_run)
 }
 
 const COULD_NOT_START: i32 = 3;
@@ -394,7 +394,7 @@ mod tests {
         let args = headless_args(&t, true);
         assert!(args.contains(&"-n".to_string()));
         assert!(args.contains(&"--itemize-changes".to_string()));
-        assert!(args.contains(&"--stats".to_string()));
+        assert!(!args.contains(&"--stats".to_string()));
     }
 
     #[test]

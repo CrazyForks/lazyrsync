@@ -113,7 +113,11 @@ pub fn resolve(task: &Task) -> Endpoints {
 }
 
 pub fn build_args(task: &Task, dry_run: bool) -> Vec<String> {
-    assemble(task, &resolve(task), dry_run)
+    assemble(task, &resolve(task), dry_run, true)
+}
+
+pub fn build_args_without_stats(task: &Task, dry_run: bool) -> Vec<String> {
+    assemble(task, &resolve(task), dry_run, false)
 }
 
 pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
@@ -127,7 +131,7 @@ pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
     Ok(())
 }
 
-fn assemble(task: &Task, ep: &Endpoints, dry_run: bool) -> Vec<String> {
+fn assemble(task: &Task, ep: &Endpoints, dry_run: bool, stats: bool) -> Vec<String> {
     let f = &task.flags;
     let mut args: Vec<String> = Vec::new();
 
@@ -195,7 +199,9 @@ fn assemble(task: &Task, ep: &Endpoints, dry_run: bool) -> Vec<String> {
     if dry_run {
         args.push("-n".into());
         args.push("--itemize-changes".into());
-        args.push("--stats".into());
+        if stats {
+            args.push("--stats".into());
+        }
     }
 
     for rule in &task.filters.filter {
@@ -423,6 +429,15 @@ mod tests {
         assert!(args.contains(&"-n".to_string()));
         assert!(args.contains(&"--itemize-changes".to_string()));
         assert!(args.contains(&"--stats".to_string()));
+    }
+
+    #[test]
+    fn without_stats_keeps_the_dry_run_diff_but_drops_the_stats_block() {
+        let p = Task::new("t", "/src/", "/dst/");
+        let args = build_args_without_stats(&p, true);
+        assert!(args.contains(&"-n".to_string()));
+        assert!(args.contains(&"--itemize-changes".to_string()));
+        assert!(!args.contains(&"--stats".to_string()));
     }
 
     #[test]

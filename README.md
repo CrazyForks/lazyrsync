@@ -134,7 +134,9 @@ lazyrsync run backups --yes           # required if any task uses --delete
 
 Flags compose freely — `lazyrsync run backups/photos-3f2a -n --yes` is valid.
 (`list` prints the command with the TUI's `--info=progress2` flag; a headless
-run drops it, since there's no progress bar to feed.)
+run drops it, since there's no progress bar to feed. A headless `-n` also drops
+`--stats`, which only the TUI's preview parser reads — you get rsync's itemized
+diff without the fourteen-line statistics block after every task.)
 
 Why not just point cron at `rsync` directly? For a plain Sync you could. A
 **Snapshot** you can't: the numbered destination directory and the
@@ -182,16 +184,22 @@ is completely silent when every task succeeds, and produces output only when
 something needs your attention — which is what makes cron's mail-on-output
 behaviour useful instead of noisy.
 
+lazyrsync's own lines are styled and separated by a blank line per task so they
+read apart from rsync's. Colour is dropped when the stream isn't a terminal, or
+when `NO_COLOR` is set — cron mail and journald get plain text.
+
 A run where one task fails looks like this on a terminal (rsync's own `-v`
 file lists elided):
 
 ```
 → Documents
 …
+
 → Photos
 rsync: [sender] change_dir "/mnt/camera" failed: No such file or directory (2)
 rsync error: some files/attrs were not transferred (see previous errors) (code 23) at main.c(1347) [sender=3.4.3]
 ✗ photos-3f2a failed: exit 23
+
 → Music
 …
 3 tasks: 2 ok, 1 failed
