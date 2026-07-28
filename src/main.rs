@@ -22,13 +22,29 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Run a profile's tasks without the TUI")]
     Run {
-        profile: String,
+        #[arg(
+            value_name = "PROFILE[/TASK]",
+            help = "Profile to run, or PROFILE/TASK for a single task (ids come from `list`)"
+        )]
+        target: String,
 
-        #[arg(short = 'n', long)]
+        #[arg(
+            short = 'n',
+            long,
+            help = "Trial run: report what would transfer, change nothing"
+        )]
         dry_run: bool,
+
+        #[arg(
+            long,
+            help = "Allow tasks that delete files at the destination (not needed with -n)"
+        )]
+        yes: bool,
     },
 
+    #[command(about = "List profiles, task ids, and their resolved rsync commands")]
     List,
 }
 
@@ -37,22 +53,29 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::List) => {
-            let store = store::Store::load(false)?;
+            let store = match store::Store::load(false) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: {e:#}");
+                    std::process::exit(2);
+                }
+            };
             headless::list(&store.profiles);
             Ok(())
         }
-        Some(Command::Run { profile, dry_run }) => {
-            let store = store::Store::load(false)?;
-            let p = store
-                .profiles
-                .iter()
-                .find(|p| p.name == profile)
-                .ok_or_else(|| anyhow::anyhow!("no profile named '{profile}'"))?;
-            for t in &p.tasks {
-                println!("{}", rsync::resolved_command(t, dry_run));
-            }
-            eprintln!("(execution engine not wired yet — command shown above)");
-            Ok(())
+        Some(Command::Run {
+            target,
+            dry_run,
+            yes,
+        }) => {
+            let store = match store::Store::load(false) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: {e:#}");
+                    std::process::exit(2);
+                }
+            };
+            std::process::exit(headless::run(&store.profiles, &target, dry_run, yes));
         }
         None => {
             let mut app = app::App::new()?;
