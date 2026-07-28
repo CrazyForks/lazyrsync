@@ -58,10 +58,6 @@ fn select<'a>(profiles: &'a [Profile], target: &str) -> Result<Vec<&'a Task>> {
     }
 }
 
-fn destructive(task: &Task) -> bool {
-    task.flags.delete || task.flags.delete_excluded
-}
-
 fn headless_args(task: &Task, dry_run: bool, verbose: bool) -> Vec<String> {
     let quiet = !dry_run && !verbose;
     let mut t = task.clone();
@@ -108,7 +104,7 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool, verbose
     if !yes && !dry_run {
         let blocked: Vec<&str> = tasks
             .iter()
-            .filter(|t| destructive(t))
+            .filter(|t| t.destructive())
             .map(|t| t.id.as_str())
             .collect();
         if !blocked.is_empty() {
