@@ -130,6 +130,7 @@ lazyrsync run backups                 # every task in the profile
 lazyrsync run backups/photos-3f2a     # a single task, by id from `list`
 lazyrsync run backups -n              # real dry run, changes nothing
 lazyrsync run backups --yes           # required if any task uses --delete
+lazyrsync run backups -v              # add rsync's own output for each task
 ```
 
 Flags compose freely — `lazyrsync run backups/photos-3f2a -n --yes` is valid.
@@ -137,6 +138,12 @@ Flags compose freely — `lazyrsync run backups/photos-3f2a -n --yes` is valid.
 run drops it, since there's no progress bar to feed. A headless `-n` also drops
 `--stats`, which only the TUI's preview parser reads — you get rsync's itemized
 diff without the fourteen-line statistics block after every task.)
+
+A real run passes rsync `-q`, so you get **one line per task** and nothing
+else — rsync still prints its errors, which is the only chatter worth mailing.
+`-v`/`--verbose` opts back into the full log per task. A dry run is **never**
+quiet: the itemized diff is the whole point of `-n`, so `-n` shows it with or
+without `-v`.
 
 Why not just point cron at `rsync` directly? For a plain Sync you could. A
 **Snapshot** you can't: the numbered destination directory and the
@@ -169,12 +176,12 @@ rsync's exit 24 — source files vanished mid-transfer — counts as success.
 
 rsync's own exit codes 1, 2 and 3 overlap these, so the status alone isn't
 always conclusive; read the message. A refusal always says `nothing ran`
-explicitly, and a task that never started prints `✗ <task-id> failed: exit 3`.
+explicitly, and a task that never started ends its line with `exit 3`.
 
 ### Output streams
 
-Task headers and the success summary go to **stdout**. Failures and the
-summary-when-something-failed go to **stderr**. So:
+Successful task lines and the success summary go to **stdout**. Failed task
+lines and the summary-when-something-failed go to **stderr**. So:
 
 ```bash
 lazyrsync run backups >/dev/null
@@ -184,24 +191,21 @@ is completely silent when every task succeeds, and produces output only when
 something needs your attention — which is what makes cron's mail-on-output
 behaviour useful instead of noisy.
 
-lazyrsync's own lines are styled and separated by a blank line per task so they
-read apart from rsync's. Colour is dropped when the stream isn't a terminal, or
-when `NO_COLOR` is set — cron mail and journald get plain text.
+Each task gets one styled line: a counter, `✔`/`✗`, the task's label, and then
+elapsed time if it worked or the exit code and the **task id** if it didn't —
+the id being what you paste back into `lazyrsync run backups/<id>` to retry
+just that one. Colour is dropped when the stream isn't a terminal, or when
+`NO_COLOR` is set — cron mail and journald get plain text.
 
-A run where one task fails looks like this on a terminal (rsync's own `-v`
-file lists elided):
+A run where one task fails looks like this:
 
 ```
-→ Documents
-…
-
-→ Photos
+[1/3] ✔ Documents  1.5s
 rsync: [sender] change_dir "/mnt/camera" failed: No such file or directory (2)
 rsync error: some files/attrs were not transferred (see previous errors) (code 23) at main.c(1347) [sender=3.4.3]
-✗ photos-3f2a failed: exit 23
+[2/3] ✗ Photos     exit 23  photos-3f2a
+[3/3] ✔ Music      0.0s
 
-→ Music
-…
 3 tasks: 2 ok, 1 failed
 ```
 
@@ -210,7 +214,7 @@ and like this under `>/dev/null` — which is exactly what cron mails you:
 ```
 rsync: [sender] change_dir "/mnt/camera" failed: No such file or directory (2)
 rsync error: some files/attrs were not transferred (see previous errors) (code 23) at main.c(1347) [sender=3.4.3]
-✗ photos-3f2a failed: exit 23
+[2/3] ✗ Photos     exit 23  photos-3f2a
 3 tasks: 2 ok, 1 failed
 ```
 
@@ -275,9 +279,9 @@ Because a task has its own address, each one can run on its own clock:
   `ssh -o BatchMode=yes`, so ssh fails fast instead of hanging on a prompt —
   but there's no ssh-agent under cron. Use a passwordless key, or set the
   task's SSH key file.
-- **Verbose is on by default**, so a nightly run lists every transferred file.
-  That's stdout, so `>/dev/null` handles it; the exit code is the signal you
-  want, and cron mails you on failure by itself.
+- **Don't expect a scheduled run to tell you what moved.** It prints one line
+  per task and nothing else, so the exit code is the signal, and cron mails you
+  on failure by itself. Add `-v` when you rerun by hand to debug.
 
 Dated destinations need no extra flags — path fields expand `{now:%Y-%m-%d}`,
 `{utcnow:…}`, `{hostname}`, `{user}`, `$VAR` and `~` on every run, headless

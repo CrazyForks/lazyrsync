@@ -42,6 +42,9 @@ enum Command {
             help = "Allow tasks that delete files at the destination (not needed with -n)"
         )]
         yes: bool,
+
+        #[arg(short = 'v', long, help = "Show rsync's full output for each task")]
+        verbose: bool,
     },
 
     #[command(about = "List profiles, task ids, and their resolved rsync commands")]
@@ -73,9 +76,16 @@ fn main() -> anyhow::Result<()> {
             target,
             dry_run,
             yes,
+            verbose,
         }) => {
             let store = load_or_exit();
-            std::process::exit(headless::run(&store.profiles, &target, dry_run, yes));
+            std::process::exit(headless::run(
+                &store.profiles,
+                &target,
+                dry_run,
+                yes,
+                verbose,
+            ));
         }
         None => {
             let mut app = app::App::new().unwrap_or_else(|e| config_error(e));

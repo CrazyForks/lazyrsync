@@ -11,6 +11,7 @@ const IDENT: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan)));
 const VALUE: Style = Style::new().bold();
 const ALERT: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red)));
 const ALERT_STRONG: Style = ALERT.bold();
+const GOOD: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green)));
 
 pub fn list(profiles: &[Profile]) {
     if profiles.is_empty() {
@@ -61,10 +62,21 @@ fn destructive(task: &Task) -> bool {
     task.flags.delete || task.flags.delete_excluded
 }
 
-fn headless_args(task: &Task, dry_run: bool) -> Vec<String> {
+fn headless_args(task: &Task, dry_run: bool, verbose: bool) -> Vec<String> {
+    let quiet = !dry_run && !verbose;
     let mut t = task.clone();
     t.flags.progress = false;
-    rsync::build_args_without_stats(&t, dry_run)
+    if quiet {
+        t.flags.verbose = false;
+    }
+    rsync::build_args_with(
+        &t,
+        rsync::ArgOpts {
+            dry_run,
+            stats: false,
+            quiet,
+        },
+    )
 }
 
 const COULD_NOT_START: i32 = 3;
@@ -74,18 +86,18 @@ fn succeeded(code: i32) -> bool {
     code == 0 || code == VANISHED_SOURCE_FILES
 }
 
-fn spawn_task(task: &Task, dry_run: bool) -> Result<i32> {
+fn spawn_task(task: &Task, dry_run: bool, verbose: bool) -> Result<i32> {
     if !dry_run {
         rsync::prepare_dest(task)?;
     }
     let status = Command::new("rsync")
-        .args(headless_args(task, dry_run))
+        .args(headless_args(task, dry_run, verbose))
         .stdin(Stdio::null())
         .status()?;
     Ok(status.code().unwrap_or(COULD_NOT_START))
 }
 
-pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 {
+pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool, verbose: bool) -> i32 {
     let tasks = match select(profiles, target) {
         Ok(t) => t,
         Err(e) => {
@@ -114,12 +126,15 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
     let mut ok = 0;
     let mut failed = 0;
     let mut first_failure = 0;
+    let count = tasks.len();
+    let width = tasks
+        .iter()
+        .map(|t| t.label.chars().count())
+        .max()
+        .unwrap_or(0);
     for (i, t) in tasks.iter().enumerate() {
-        if i > 0 {
-            anstream::println!();
-        }
-        anstream::println!("{PROSE}→{PROSE:#} {IDENT}{}{IDENT:#}", t.label);
-        let code = match spawn_task(t, dry_run) {
+        let started = std::time::Instant::now();
+        let code = match spawn_task(t, dry_run, verbose) {
             Ok(c) => c,
             Err(e) => {
                 anstream::eprintln!(
@@ -129,11 +144,17 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
                 COULD_NOT_START
             }
         };
+        let elapsed = started.elapsed().as_secs_f64();
+        let counter = format!("[{}/{count}]", i + 1);
+        let label = format!("{:<width$}", t.label);
         if succeeded(code) {
+            anstream::println!(
+                "{PROSE}{counter}{PROSE:#} {GOOD}✔{GOOD:#} {IDENT}{label}{IDENT:#}  {PROSE}{elapsed:.1}s{PROSE:#}"
+            );
             ok += 1;
         } else {
             anstream::eprintln!(
-                "{ALERT}✗{ALERT:#} {IDENT}{}{IDENT:#} failed: exit {VALUE}{code}{VALUE:#}",
+                "{PROSE}{counter}{PROSE:#} {ALERT}✗{ALERT:#} {IDENT}{label}{IDENT:#}  {PROSE}exit {code}  {}{PROSE:#}",
                 t.id
             );
             failed += 1;
@@ -142,17 +163,15 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
             }
         }
     }
-    anstream::println!();
-    let count = tasks.len();
     let plural = if count == 1 { "" } else { "s" };
     let failed_value = if failed > 0 { ALERT_STRONG } else { VALUE };
     let summary = format!(
         "{VALUE}{count}{VALUE:#} {PROSE}task{plural}:{PROSE:#} {VALUE}{ok}{VALUE:#} {PROSE}ok,{PROSE:#} {failed_value}{failed}{failed_value:#} {PROSE}failed{PROSE:#}"
     );
     if failed > 0 {
-        anstream::eprintln!("{summary}");
+        anstream::eprintln!("\n{summary}");
     } else {
-        anstream::println!("{summary}");
+        anstream::println!("\n{summary}");
     }
     first_failure
 }
@@ -209,7 +228,7 @@ mod tests {
             &format!("{}/", dst.display()),
         )])];
 
-        let code = run(&ps, "backups", false, false);
+        let code = run(&ps, "backups", false, false, false);
         let landed = dst.join("a.txt").is_file();
         let _ = std::fs::remove_dir_all(&base);
 
@@ -240,7 +259,7 @@ mod tests {
             ),
         ])];
 
-        let code = run(&ps, "backups", false, false);
+        let code = run(&ps, "backups", false, false, false);
         let later_task_ran = good_dst.join("a.txt").is_file();
         let _ = std::fs::remove_dir_all(&base);
 
@@ -263,7 +282,7 @@ mod tests {
             &format!("{}/", dst.display()),
         )])];
 
-        let _ = run(&ps, "backups", true, false);
+        let _ = run(&ps, "backups", true, false, false);
         let created = base.join("nested").exists();
         let _ = std::fs::remove_dir_all(&base);
 
@@ -273,7 +292,7 @@ mod tests {
     #[test]
     fn unknown_profile_returns_2() {
         let ps = vec![profile(vec![task("photos", "/src/", "/dst/")])];
-        assert_eq!(run(&ps, "nope", false, false), 2);
+        assert_eq!(run(&ps, "nope", false, false, false), 2);
         assert!(select(&ps, "nope")
             .unwrap_err()
             .to_string()
@@ -283,7 +302,7 @@ mod tests {
     #[test]
     fn unknown_task_id_returns_2() {
         let ps = vec![profile(vec![task("photos", "/src/", "/dst/")])];
-        assert_eq!(run(&ps, "backups/nope", false, false), 2);
+        assert_eq!(run(&ps, "backups/nope", false, false, false), 2);
         assert!(select(&ps, "backups/nope")
             .unwrap_err()
             .to_string()
@@ -323,7 +342,7 @@ mod tests {
         let mut t = task("photos", "/src/", "/dst/");
         t.flags.delete = true;
         let ps = vec![profile(vec![t])];
-        assert_eq!(run(&ps, "backups", false, false), 1);
+        assert_eq!(run(&ps, "backups", false, false, false), 1);
     }
 
     #[test]
@@ -331,7 +350,7 @@ mod tests {
         let mut t = task("photos", "/src/", "/dst/");
         t.flags.delete_excluded = true;
         let ps = vec![profile(vec![t])];
-        assert_eq!(run(&ps, "backups", false, false), 1);
+        assert_eq!(run(&ps, "backups", false, false, false), 1);
     }
 
     #[test]
@@ -345,7 +364,7 @@ mod tests {
         t.flags.delete = true;
         let ps = vec![profile(vec![t])];
 
-        let code = run(&ps, "backups", true, false);
+        let code = run(&ps, "backups", true, false, false);
         let _ = std::fs::remove_dir_all(&base);
 
         assert_ne!(code, 1);
@@ -362,7 +381,7 @@ mod tests {
         t.flags.delete = true;
         let ps = vec![profile(vec![t])];
 
-        let code = run(&ps, "backups", false, true);
+        let code = run(&ps, "backups", false, true, false);
         let _ = std::fs::remove_dir_all(&base);
 
         assert_ne!(code, 1);
@@ -373,29 +392,68 @@ mod tests {
         let mut bad = task("photos", "/src/", "/dst/");
         bad.flags.delete = true;
         let ps = vec![profile(vec![task("music", "/src2/", "/dst2/"), bad])];
-        assert_eq!(run(&ps, "backups", false, false), 1);
+        assert_eq!(run(&ps, "backups", false, false, false), 1);
     }
 
     #[test]
     fn headless_args_never_request_progress() {
         let mut t = task("photos", "/src/", "/dst/");
         assert!(t.flags.progress);
-        let args = headless_args(&t, false);
+        let args = headless_args(&t, false, false);
         assert!(!args.contains(&"--info=progress2".to_string()));
         assert!(args.contains(&"-a".to_string()));
         assert!(!args.contains(&"-n".to_string()));
 
         t.flags.progress = false;
-        assert!(!headless_args(&t, false).contains(&"--info=progress2".to_string()));
+        assert!(!headless_args(&t, false, false).contains(&"--info=progress2".to_string()));
     }
 
     #[test]
     fn headless_args_still_pass_dry_run_flags() {
         let t = task("photos", "/src/", "/dst/");
-        let args = headless_args(&t, true);
+        let args = headless_args(&t, true, false);
         assert!(args.contains(&"-n".to_string()));
         assert!(args.contains(&"--itemize-changes".to_string()));
         assert!(!args.contains(&"--stats".to_string()));
+    }
+
+    #[test]
+    fn a_real_run_asks_rsync_to_be_quiet() {
+        let t = task("photos", "/src/", "/dst/");
+        assert!(headless_args(&t, false, false).contains(&"-q".to_string()));
+    }
+
+    #[test]
+    fn a_dry_run_is_never_quiet_so_the_itemized_diff_survives() {
+        let t = task("photos", "/src/", "/dst/");
+        assert!(!headless_args(&t, true, false).contains(&"-q".to_string()));
+        assert!(!headless_args(&t, true, true).contains(&"-q".to_string()));
+    }
+
+    #[test]
+    fn verbose_keeps_rsyncs_full_output() {
+        let t = task("photos", "/src/", "/dst/");
+        let args = headless_args(&t, false, true);
+        assert!(!args.contains(&"-q".to_string()));
+        assert!(args.contains(&"-v".to_string()));
+    }
+
+    #[test]
+    fn quiet_drops_the_contradictory_verbose_flag() {
+        let mut t = task("photos", "/src/", "/dst/");
+        t.flags.verbose = true;
+        let args = headless_args(&t, false, false);
+        assert!(args.contains(&"-q".to_string()));
+        assert!(!args.contains(&"-v".to_string()));
+    }
+
+    #[test]
+    fn quiet_lands_before_the_path_guard() {
+        let t = task("photos", "-n", "/dst/");
+        let args = headless_args(&t, false, false);
+        let q = args.iter().position(|a| a == "-q").expect("missing -q");
+        let guard = args.iter().position(|a| a == "--").expect("missing --");
+        assert!(q < guard, "-q must not be read as a path: {args:?}");
     }
 
     #[test]
@@ -410,7 +468,7 @@ mod tests {
         );
         let ps = vec![profile(vec![safe, bad])];
 
-        let code = run(&ps, "backups/music", false, false);
+        let code = run(&ps, "backups/music", false, false, false);
         let _ = std::fs::remove_dir_all(&base);
 
         assert_ne!(code, 1);
@@ -419,7 +477,7 @@ mod tests {
     #[test]
     fn empty_profile_says_nothing_to_do_and_returns_0() {
         let ps = vec![profile(vec![])];
-        assert_eq!(run(&ps, "backups", false, false), 0);
+        assert_eq!(run(&ps, "backups", false, false, false), 0);
     }
 
     #[test]
@@ -446,7 +504,7 @@ mod tests {
             &format!("{}/", dst.display()),
         )])];
 
-        let code = run(&ps, "backups", true, false);
+        let code = run(&ps, "backups", true, false, false);
         let landed = dst.join("a.txt").exists();
         let _ = std::fs::remove_dir_all(&base);
 
@@ -476,7 +534,7 @@ mod tests {
             ),
         ])];
 
-        let code = run(&ps, "backups", false, false);
+        let code = run(&ps, "backups", false, false, false);
         let _ = std::fs::remove_dir_all(&base);
 
         assert_eq!(code, 3, "a task that could not start must exit 3, never 1");

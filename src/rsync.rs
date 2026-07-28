@@ -112,12 +112,25 @@ pub fn resolve(task: &Task) -> Endpoints {
     }
 }
 
-pub fn build_args(task: &Task, dry_run: bool) -> Vec<String> {
-    assemble(task, &resolve(task), dry_run, true)
+pub struct ArgOpts {
+    pub dry_run: bool,
+    pub stats: bool,
+    pub quiet: bool,
 }
 
-pub fn build_args_without_stats(task: &Task, dry_run: bool) -> Vec<String> {
-    assemble(task, &resolve(task), dry_run, false)
+pub fn build_args(task: &Task, dry_run: bool) -> Vec<String> {
+    build_args_with(
+        task,
+        ArgOpts {
+            dry_run,
+            stats: true,
+            quiet: false,
+        },
+    )
+}
+
+pub fn build_args_with(task: &Task, opts: ArgOpts) -> Vec<String> {
+    assemble(task, &resolve(task), opts)
 }
 
 pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
@@ -131,8 +144,9 @@ pub fn prepare_dest(task: &Task) -> std::io::Result<()> {
     Ok(())
 }
 
-fn assemble(task: &Task, ep: &Endpoints, dry_run: bool, stats: bool) -> Vec<String> {
+fn assemble(task: &Task, ep: &Endpoints, opts: ArgOpts) -> Vec<String> {
     let f = &task.flags;
+    let dry_run = opts.dry_run;
     let mut args: Vec<String> = Vec::new();
 
     if f.archive {
@@ -152,6 +166,9 @@ fn assemble(task: &Task, ep: &Endpoints, dry_run: bool, stats: bool) -> Vec<Stri
     }
     if f.verbose {
         args.push("-v".into());
+    }
+    if opts.quiet {
+        args.push("-q".into());
     }
     if f.human && !dry_run {
         args.push("-h".into());
@@ -199,7 +216,7 @@ fn assemble(task: &Task, ep: &Endpoints, dry_run: bool, stats: bool) -> Vec<Stri
     if dry_run {
         args.push("-n".into());
         args.push("--itemize-changes".into());
-        if stats {
+        if opts.stats {
             args.push("--stats".into());
         }
     }
@@ -434,10 +451,37 @@ mod tests {
     #[test]
     fn without_stats_keeps_the_dry_run_diff_but_drops_the_stats_block() {
         let p = Task::new("t", "/src/", "/dst/");
-        let args = build_args_without_stats(&p, true);
+        let args = build_args_with(
+            &p,
+            ArgOpts {
+                dry_run: true,
+                stats: false,
+                quiet: false,
+            },
+        );
         assert!(args.contains(&"-n".to_string()));
         assert!(args.contains(&"--itemize-changes".to_string()));
         assert!(!args.contains(&"--stats".to_string()));
+    }
+
+    #[test]
+    fn quiet_emits_q_before_the_path_guard() {
+        let p = Task::new("t", "/src/", "/dst/");
+        let args = build_args_with(
+            &p,
+            ArgOpts {
+                dry_run: false,
+                stats: false,
+                quiet: true,
+            },
+        );
+        let q = args.iter().position(|a| a == "-q").expect("missing -q");
+        let guard = args.iter().position(|a| a == "--").expect("missing --");
+        assert!(
+            q < guard,
+            "-q must precede the end-of-options guard: {args:?}"
+        );
+        assert!(!build_args(&p, false).contains(&"-q".to_string()));
     }
 
     #[test]
