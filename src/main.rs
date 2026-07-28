@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::List) => {
-            let store = store::Store::load()?;
+            let store = store::Store::load(false)?;
             if store.profiles.is_empty() {
                 println!("No profiles. Add one in the TUI (run `lazyrsync`).");
             }
@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(Command::Run { profile, dry_run }) => {
-            let store = store::Store::load()?;
+            let store = store::Store::load(false)?;
             let p = store
                 .profiles
                 .iter()

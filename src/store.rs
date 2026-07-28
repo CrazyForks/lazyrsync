@@ -227,7 +227,7 @@ impl Store {
         self.profiles[1..].sort_by_key(|p| std::cmp::Reverse(p.created));
     }
 
-    pub fn load() -> Result<Self> {
+    pub fn load(persist_backfill: bool) -> Result<Self> {
         let global_path = Self::global_path();
         let mut profiles = read_file(&global_path)?;
         let now = now_unix();
@@ -249,7 +249,7 @@ impl Store {
             profiles,
             global_path,
         };
-        if backfilled {
+        if persist_backfill && backfilled {
             let _ = store.save();
         }
         Ok(store)
