@@ -82,7 +82,7 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool) -> i32 
     let tasks = match select(profiles, target) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("error: {e:#}");
             return 2;
         }
     };

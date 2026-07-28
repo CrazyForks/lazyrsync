@@ -33,7 +33,7 @@ enum Command {
         #[arg(
             short = 'n',
             long,
-            help = "Trial run: report what would transfer, change nothing"
+            help = "Trial run: report what would change, change nothing"
         )]
         dry_run: bool,
 
@@ -48,19 +48,21 @@ enum Command {
     List,
 }
 
+fn config_error(e: anyhow::Error) -> ! {
+    eprintln!("error: {e:#}");
+    std::process::exit(2);
+}
+
+fn load_or_exit() -> store::Store {
+    store::Store::load(false).unwrap_or_else(|e| config_error(e))
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Some(Command::List) => {
-            let store = match store::Store::load(false) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("error: {e:#}");
-                    std::process::exit(2);
-                }
-            };
-            headless::list(&store.profiles);
+            headless::list(&load_or_exit().profiles);
             Ok(())
         }
         Some(Command::Run {
@@ -68,17 +70,11 @@ fn main() -> anyhow::Result<()> {
             dry_run,
             yes,
         }) => {
-            let store = match store::Store::load(false) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("error: {e:#}");
-                    std::process::exit(2);
-                }
-            };
+            let store = load_or_exit();
             std::process::exit(headless::run(&store.profiles, &target, dry_run, yes));
         }
         None => {
-            let mut app = app::App::new()?;
+            let mut app = app::App::new().unwrap_or_else(|e| config_error(e));
             let mut terminal = ratatui::init();
             let prev_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
