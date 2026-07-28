@@ -633,13 +633,24 @@ pub fn bool_flag_count() -> usize {
         .count()
 }
 
-pub fn delete_flag_index() -> usize {
+pub fn destructive_flag_label(field_index: usize) -> Option<&'static str> {
+    Section::Flags
+        .fields()
+        .get(field_index)
+        .copied()
+        .filter(|f| matches!(f, F::Delete | F::DeleteExcluded))
+        .map(|f| f.label())
+}
+
+pub fn enabled_destructive_flags(flags: &Flags) -> Vec<&'static str> {
     Section::Flags
         .fields()
         .iter()
-        .filter(|f| matches!(f.kind(), Kind::Bool))
-        .position(|f| matches!(f, F::Delete))
-        .unwrap_or(0)
+        .copied()
+        .filter(|f| matches!(f, F::Delete | F::DeleteExcluded))
+        .filter(|f| bool_of(flags, *f))
+        .map(|f| f.label())
+        .collect()
 }
 
 pub fn toggle_bool_flag(flags: &mut Flags, field_index: usize) {
@@ -722,6 +733,15 @@ fn split_list(s: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn both_delete_flags_are_the_only_destructive_ones() {
+        let labels: Vec<&str> = (0..Section::Flags.fields().len())
+            .filter_map(destructive_flag_label)
+            .collect();
+        assert_eq!(labels, vec!["--delete", "--delete-excluded"]);
+        assert_eq!(destructive_flag_label(usize::MAX), None);
+    }
 
     #[test]
     fn split_list_trims_and_drops_empties() {

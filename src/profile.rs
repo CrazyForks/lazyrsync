@@ -255,11 +255,29 @@ impl Task {
     pub fn candidate_id(&self) -> String {
         format!("{}-{}", slugify(&self.label), self.content_token())
     }
+
+    pub fn destructive(&self) -> bool {
+        self.flags.delete || self.flags.delete_excluded
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delete_excluded_alone_counts_as_destructive() {
+        let mut t = Task::new("t", "/src/", "/dst/");
+        assert!(!t.destructive());
+        t.flags.delete_excluded = true;
+        assert!(
+            t.destructive(),
+            "--delete-excluded removes files at the destination on its own"
+        );
+        t.flags.delete_excluded = false;
+        t.flags.delete = true;
+        assert!(t.destructive());
+    }
 
     #[test]
     fn same_name_different_action_gets_distinct_ids() {

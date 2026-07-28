@@ -99,10 +99,12 @@ impl Browse {
                 Cmd::None
             }
             KeyCode::Char(' ') if self.focus == 1 => {
-                let enabling_delete = self.flag == editor::delete_flag_index()
-                    && cx.active_task().is_some_and(|t| !t.flags.delete);
-                if enabling_delete && !cx.settings.skip_delete_warning {
-                    return Cmd::Overlay(Overlay::Alert(Alert::enable_delete()));
+                let becoming_destructive = editor::destructive_flag_label(self.flag)
+                    .filter(|_| cx.active_task().is_some_and(|t| !t.destructive()));
+                if let Some(label) = becoming_destructive {
+                    if !cx.settings.skip_delete_warning {
+                        return Cmd::Overlay(Overlay::Alert(Alert::enable_flag(self.flag, label)));
+                    }
                 }
                 if let Some(p) = cx.store.profiles.get_mut(cx.profile) {
                     if let Some(t) = p.tasks.get_mut(cx.task) {

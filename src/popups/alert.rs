@@ -11,7 +11,10 @@ use crate::app::{Cmd, Ctx};
 use crate::ui::{deleted, hint_line, with_footer};
 
 pub enum AlertAction {
-    EnableDelete,
+    EnableFlag {
+        field_index: usize,
+        label: &'static str,
+    },
 }
 
 pub struct Alert {
@@ -19,9 +22,9 @@ pub struct Alert {
 }
 
 impl Alert {
-    pub fn enable_delete() -> Self {
+    pub fn enable_flag(field_index: usize, label: &'static str) -> Self {
         Self {
-            action: AlertAction::EnableDelete,
+            action: AlertAction::EnableFlag { field_index, label },
         }
     }
 
@@ -32,11 +35,12 @@ impl Alert {
             vec![]
         };
         let area = with_footer(frame, cx, area, 60, 8, footer);
+        let AlertAction::EnableFlag { label, .. } = self.action;
         let text = Text::from(vec![
             Line::from(""),
             Line::from(vec![
                 "Enable ".into(),
-                "--delete".fg(deleted()).bold(),
+                label.fg(deleted()).bold(),
                 " ?".into(),
             ]),
             Line::from(""),
@@ -58,13 +62,13 @@ impl Alert {
         match key.code {
             KeyCode::Char('y') | KeyCode::Enter => {
                 match self.action {
-                    AlertAction::EnableDelete => {
+                    AlertAction::EnableFlag { field_index, label } => {
                         if let Some(p) = cx.store.profiles.get_mut(cx.profile) {
                             if let Some(t) = p.tasks.get_mut(cx.task) {
-                                t.flags.delete = true;
+                                crate::editor::toggle_bool_flag(&mut t.flags, field_index);
                             }
                         }
-                        cx.save("enabled --delete");
+                        cx.save(&format!("enabled {label}"));
                     }
                 }
                 Cmd::Close
