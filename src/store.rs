@@ -11,12 +11,14 @@ struct ProfileFile {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredFile {
     #[serde(default, rename = "profile")]
     profiles: Vec<StoredProfile>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredProfile {
     name: String,
     #[serde(default)]
@@ -36,6 +38,7 @@ struct StoredProfile {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredTask {
     #[serde(default)]
     id: String,
@@ -388,6 +391,80 @@ destinations = ["/mnt/usb/"]
         let p: Profile = parsed.profiles.into_iter().next().unwrap().into();
         assert_eq!(p.tasks[0].dest, "/mnt/usb/");
         assert_eq!(p.tasks[0].action, Action::Sync);
+    }
+
+    fn parse_error(text: &str) -> String {
+        toml::from_str::<StoredFile>(text)
+            .err()
+            .expect("unknown key should be rejected")
+            .to_string()
+    }
+
+    #[test]
+    fn unknown_task_key_is_rejected() {
+        let typo = r#"
+[[profile]]
+name = "p"
+[[profile.task]]
+label = "t"
+source = "/home/me/data/"
+dst = "/mnt/usb/"
+"#;
+        let err = parse_error(typo);
+        assert!(err.contains("dst"), "error should name the field: {err}");
+    }
+
+    #[test]
+    fn misspelled_excludes_is_rejected_not_silently_empty() {
+        let typo = r#"
+[[profile]]
+name = "p"
+[[profile.task]]
+label = "t"
+source = "/home/me/data/"
+dest = "/mnt/usb/"
+
+[profile.task.flags]
+delete = true
+
+[profile.task.filters]
+exclude = ["node_modules/"]
+"#;
+        let err = parse_error(typo);
+        assert!(
+            err.contains("exclude"),
+            "error should name the field: {err}"
+        );
+    }
+
+    #[test]
+    fn unknown_profile_key_is_rejected() {
+        let typo = r#"
+[[profile]]
+name = "p"
+descripton = "typo"
+"#;
+        let err = parse_error(typo);
+        assert!(
+            err.contains("descripton"),
+            "error should name the field: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_error_names_the_file() {
+        let dir = std::env::temp_dir().join("lazyrsync-deny-unknown-test");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("profiles.toml");
+        fs::write(
+            &path,
+            "[[profile]]\nname = \"p\"\n[[profile.task]]\nlabel = \"t\"\nsource = \"/s/\"\nlabl = \"x\"\n",
+        )
+        .unwrap();
+        let err = format!("{:#}", read_file(&path).unwrap_err());
+        assert!(err.contains("labl"), "names the field: {err}");
+        assert!(err.contains("profiles.toml"), "names the file: {err}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

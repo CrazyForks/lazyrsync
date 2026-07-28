@@ -83,7 +83,7 @@ pub struct Task {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Flags {
     pub archive: bool,
     pub compress: bool,
@@ -134,16 +134,13 @@ impl Default for Flags {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Filters {
     pub excludes: Vec<String>,
     pub includes: Vec<String>,
     pub exclude_from: String,
-    #[serde(default)]
     pub include_from: String,
-    #[serde(default)]
     pub files_from: String,
-    #[serde(default)]
     pub filter: Vec<String>,
 }
 
@@ -159,7 +156,7 @@ impl Filters {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Ssh {
     pub port: u16,
     pub keyfile: String,
@@ -177,7 +174,7 @@ impl Default for Ssh {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Advanced {
     pub raw_args: String,
 }
