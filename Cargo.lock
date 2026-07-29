@@ -505,6 +505,7 @@ dependencies = [
  "ratatui",
  "serde",
  "toml",
+ "toml_edit",
 ]
 
 [[package]]
