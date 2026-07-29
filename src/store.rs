@@ -188,8 +188,10 @@ impl Settings {
 
     pub fn load() -> Result<Self> {
         let path = Self::path();
-        let Ok(text) = fs::read_to_string(&path) else {
-            return Ok(Self::default());
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
         toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
