@@ -418,9 +418,6 @@ Every prompt has its own opt-out in `settings.toml`, all `false` by default:
 `skip_run_confirm` removes the last prompt before a transfer, including for
 tasks that use `--delete`.
 
-lazyrsync reads `settings.toml` at startup and rewrites it on exit, so edit it
-while the TUI is closed or your changes will be overwritten.
-
 ### Dynamic paths
 
 Source and destination paths can contain placeholders, resolved every time the

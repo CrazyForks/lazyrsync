@@ -199,10 +199,23 @@ impl Settings {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
-        let text = toml::to_string_pretty(self).context("serializing settings")?;
+        let merged = fs::read_to_string(&path)
+            .ok()
+            .and_then(|old| merge_settings(&old, self.hints, &self.last_profile));
+        let text = match merged {
+            Some(text) => text,
+            None => toml::to_string_pretty(self).context("serializing settings")?,
+        };
         fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
+}
+
+fn merge_settings(existing: &str, hints: bool, last_profile: &str) -> Option<String> {
+    let mut doc = existing.parse::<toml_edit::DocumentMut>().ok()?;
+    doc["hints"] = toml_edit::value(hints);
+    doc["last_profile"] = toml_edit::value(last_profile);
+    Some(doc.to_string())
 }
 
 pub struct Store {
@@ -286,6 +299,25 @@ fn read_file(path: &Path) -> Result<Vec<Profile>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saving_settings_keeps_hand_edited_keys() {
+        let existing = "# never nag before a run\nskip_run_confirm = true\nskip_delete_warning = true\nhints = true\nlast_profile = \"backup\"\n\n[theme]\naccent = \"magenta\"\n";
+
+        let merged = merge_settings(existing, false, "archive").unwrap();
+
+        assert!(merged.contains("# never nag before a run"));
+        assert!(merged.contains("skip_run_confirm = true"));
+        assert!(merged.contains("skip_delete_warning = true"));
+        assert!(merged.contains("accent = \"magenta\""));
+        assert!(merged.contains("hints = false"));
+        assert!(merged.contains("last_profile = \"archive\""));
+    }
+
+    #[test]
+    fn malformed_settings_do_not_merge() {
+        assert!(merge_settings("hints = ", true, "backup").is_none());
+    }
 
     #[test]
     fn profile_round_trips_through_toml() {
