@@ -158,7 +158,7 @@ fn config_dir() -> PathBuf {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub skip_delete_warning: bool,
     pub skip_run_confirm: bool,
@@ -186,12 +186,12 @@ impl Settings {
         config_dir().join("settings.toml")
     }
 
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self> {
         let path = Self::path();
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| toml::from_str(&t).ok())
-            .unwrap_or_default()
+        let Ok(text) = fs::read_to_string(&path) else {
+            return Ok(Self::default());
+        };
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
     pub fn save(&self) -> Result<()> {

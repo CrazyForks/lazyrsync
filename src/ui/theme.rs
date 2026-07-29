@@ -17,7 +17,7 @@ pub(crate) struct Theme {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub(crate) struct ThemeSpec {
     pub accent: String,
     pub on_accent: String,

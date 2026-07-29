@@ -402,8 +402,9 @@ error: parsing /home/me/.config/lazyrsync/profiles.toml: TOML parse error at lin
 unknown field `exclude`, expected one of `excludes`, `includes`, `exclude_from`, `include_from`, `files_from`, `filter`
 ```
 
-One consequence: a `profiles.toml` written by a newer lazyrsync may fail to
-load on an older binary rather than being partially ignored.
+`settings.toml` is parsed under the same rule. One consequence for both: a file
+written by a newer lazyrsync may fail to load on an older binary rather than
+being partially ignored.
 
 ### Confirmation prompts
 
