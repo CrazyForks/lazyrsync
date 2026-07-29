@@ -121,6 +121,9 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool, verbose
         anstream::eprintln!("{PROSE}nothing to do: profile '{target}' has no tasks{PROSE:#}");
         return 0;
     }
+    if let Some(w) = rsync::capability_warning() {
+        anstream::eprintln!("{ALERT_STRONG}warning:{ALERT_STRONG:#} {w}");
+    }
     let mut ok = 0;
     let mut failed = 0;
     let mut first_failure = 0;
