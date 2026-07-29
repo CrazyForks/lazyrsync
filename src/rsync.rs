@@ -287,8 +287,23 @@ fn build_rsh(task: &Task, ep: &Endpoints) -> Option<String> {
     Some(parts.join(" "))
 }
 
+pub fn binary() -> &'static str {
+    static BINARY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BINARY.get_or_init(|| {
+        let configured = crate::store::Settings::load()
+            .map(|s| s.rsync_path)
+            .unwrap_or_default();
+        let configured = configured.trim();
+        if configured.is_empty() {
+            "rsync".into()
+        } else {
+            configured.to_string()
+        }
+    })
+}
+
 pub fn resolved_command(task: &Task, dry_run: bool) -> String {
-    format!("rsync {}", build_args(task, dry_run).join(" "))
+    format!("{} {}", binary(), build_args(task, dry_run).join(" "))
 }
 
 #[cfg(test)]

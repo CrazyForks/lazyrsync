@@ -88,7 +88,7 @@ fn spawn_task(task: &Task, dry_run: bool, verbose: bool) -> Result<i32> {
     if !dry_run {
         rsync::prepare_dest(task)?;
     }
-    let status = Command::new("rsync")
+    let status = Command::new(rsync::binary())
         .args(headless_args(task, dry_run, verbose))
         .stdin(Stdio::null())
         .status()?;
