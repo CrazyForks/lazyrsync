@@ -165,6 +165,7 @@ pub struct Settings {
     pub skip_remove_confirm: bool,
     pub hints: bool,
     pub last_profile: String,
+    pub rsync_path: String,
     pub theme: crate::ui::ThemeSpec,
 }
 
@@ -176,6 +177,7 @@ impl Default for Settings {
             skip_remove_confirm: false,
             hints: true,
             last_profile: String::new(),
+            rsync_path: "rsync".into(),
             theme: crate::ui::ThemeSpec::default(),
         }
     }
