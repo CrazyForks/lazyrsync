@@ -88,10 +88,10 @@ next directory (`1/`, `2/`, …).
 `rsync` must be on your `$PATH`.
 
 ```bash
-cargo install lazyrsync                          # crates.io
-cargo binstall lazyrsync                          # prebuilt release binary
-brew install westpoint-io/lazyrsync/lazyrsync     # Homebrew
-yay -S lazyrsync                                   # AUR (Arch)
+cargo install lazyrsync      # crates.io
+cargo binstall lazyrsync     # prebuilt release binary
+brew install lazyrsync       # Homebrew
+yay -S lazyrsync             # AUR (Arch)
 ```
 
 Or build from source:
