@@ -64,7 +64,7 @@ pub fn start(task: &Task) -> RunHandle {
             let _ = tx.send(RunMsg::Failed(format!("could not create destination: {e}")));
             return;
         }
-        let mut child = match Command::new("rsync")
+        let mut child = match Command::new(rsync::binary())
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

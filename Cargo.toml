@@ -1,6 +1,6 @@
 [package]
 name = "lazyrsync"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "A terminal UI for rsync — profiles, honest dry-run preview, live progress. Runs over SSH where no GUI can."
 license = "MIT"
@@ -29,6 +29,7 @@ anyhow = "1"
 anstyle = "1"
 anstream = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+toml_edit = { version = "0.22", default-features = false, features = ["parse", "display"] }
 
 [dev-dependencies]
 dhat = "0.3"

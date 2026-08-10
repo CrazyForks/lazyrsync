@@ -287,14 +287,85 @@ fn build_rsh(task: &Task, ep: &Endpoints) -> Option<String> {
     Some(parts.join(" "))
 }
 
+pub fn binary() -> &'static str {
+    static BINARY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BINARY.get_or_init(|| {
+        let configured = crate::store::Settings::load()
+            .map(|s| s.rsync_path)
+            .unwrap_or_default();
+        let configured = configured.trim();
+        if configured.is_empty() {
+            "rsync".into()
+        } else {
+            configured.to_string()
+        }
+    })
+}
+
 pub fn resolved_command(task: &Task, dry_run: bool) -> String {
-    format!("rsync {}", build_args(task, dry_run).join(" "))
+    format!("{} {}", binary(), build_args(task, dry_run).join(" "))
+}
+
+const DOCS: &str = "lazyrsync.westpoint.io/docs/install";
+
+fn needs_rsync31(detected: &str) -> String {
+    format!("{detected}; rsync 3.1+ is needed. See: {DOCS}")
+}
+
+pub fn version_warning(version_output: &str) -> Option<String> {
+    let first = version_output
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default();
+    if !first.starts_with("rsync ") {
+        return Some(needs_rsync31(&if first.contains("openrsync") {
+            "openrsync was detected".to_string()
+        } else {
+            format!("an unrecognized rsync was detected (\"{first}\")")
+        }));
+    }
+    let version = first.split_whitespace().nth(2)?;
+    let mut parts = version.trim_start_matches('v').split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts.next().and_then(|m| m.parse().ok()).unwrap_or(0);
+    ((major, minor) < (3, 1)).then(|| needs_rsync31(&format!("rsync {version} was detected")))
+}
+
+pub fn capability_warning() -> Option<String> {
+    let out = match std::process::Command::new(binary())
+        .arg("--version")
+        .output()
+    {
+        Ok(out) => out,
+        Err(_) => return Some(needs_rsync31(&format!("could not run `{}`", binary()))),
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.trim().is_empty() {
+        version_warning(&String::from_utf8_lossy(&out.stderr))
+    } else {
+        version_warning(&stdout)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::profile::{Action, Task};
+
+    #[test]
+    fn accepts_rsync_31_and_flags_anything_else() {
+        assert!(version_warning("rsync  version 3.1.0  protocol version 30").is_none());
+        assert!(version_warning("rsync  version 3.2.7  protocol version 31").is_none());
+        assert!(version_warning("rsync  version v3.4.1  protocol version 32").is_none());
+        let no_progress2 = version_warning("rsync  version 3.0.9  protocol version 30").unwrap();
+        assert!(no_progress2.contains("3.0.9"), "{no_progress2}");
+        let old = version_warning("rsync  version 2.6.9  protocol version 29").unwrap();
+        assert!(old.contains("2.6.9"), "{old}");
+        let open = version_warning("openrsync: protocol version 29").unwrap();
+        assert!(open.contains("openrsync") && open.contains(DOCS), "{open}");
+        assert!(version_warning("").is_some());
+    }
 
     #[test]
     fn default_sync_is_safe_archive() {

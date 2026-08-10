@@ -85,7 +85,17 @@ next directory (`1/`, `2/`, …).
 
 ## Install
 
-`rsync` must be on your `$PATH`.
+**rsync 3.1 or later** must be on your `$PATH` — the preview needs
+`--itemize-changes`, the progress bar needs `--info=progress2` (added in
+3.1.0) and snapshots need `--link-dest`. The Homebrew and AUR packages pull
+rsync in; `cargo install` and `cargo binstall` do not.
+
+On macOS 15.4 and later `/usr/bin/rsync` is openrsync, which has no
+`--itemize-changes` and no `--info` at all, and accepts `--link-dest` without
+reliably hardlinking. `brew install rsync`, then either put it ahead of
+`/usr/bin` on `$PATH` or set `rsync_path` (see
+[Choosing which rsync runs](#choosing-which-rsync-runs)). lazyrsync warns at
+startup when the rsync it finds is older than 3.1.
 
 ```bash
 cargo install lazyrsync      # crates.io
@@ -402,8 +412,9 @@ error: parsing /home/me/.config/lazyrsync/profiles.toml: TOML parse error at lin
 unknown field `exclude`, expected one of `excludes`, `includes`, `exclude_from`, `include_from`, `files_from`, `filter`
 ```
 
-One consequence: a `profiles.toml` written by a newer lazyrsync may fail to
-load on an older binary rather than being partially ignored.
+`settings.toml` is parsed under the same rule. One consequence for both: a file
+written by a newer lazyrsync may fail to load on an older binary rather than
+being partially ignored.
 
 ### Confirmation prompts
 
@@ -418,8 +429,19 @@ Every prompt has its own opt-out in `settings.toml`, all `false` by default:
 `skip_run_confirm` removes the last prompt before a transfer, including for
 tasks that use `--delete`.
 
-lazyrsync reads `settings.toml` at startup and rewrites it on exit, so edit it
-while the TUI is closed or your changes will be overwritten.
+### Choosing which rsync runs
+
+By default lazyrsync runs the first `rsync` on your `$PATH`. Point
+`rsync_path` in `settings.toml` at a specific binary to override that:
+
+```toml
+rsync_path = "/opt/homebrew/bin/rsync"
+```
+
+Useful on macOS 15.4+, where `/usr/bin/rsync` is openrsync and comes ahead of
+Homebrew's rsync on `$PATH` — and in any launch context with a minimal
+`$PATH`, such as cron. The configured binary is what the resolved command
+shown in the TUI and `lazyrsync list` reports.
 
 ### Dynamic paths
 

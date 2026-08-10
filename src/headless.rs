@@ -88,7 +88,7 @@ fn spawn_task(task: &Task, dry_run: bool, verbose: bool) -> Result<i32> {
     if !dry_run {
         rsync::prepare_dest(task)?;
     }
-    let status = Command::new("rsync")
+    let status = Command::new(rsync::binary())
         .args(headless_args(task, dry_run, verbose))
         .stdin(Stdio::null())
         .status()?;
@@ -120,6 +120,9 @@ pub fn run(profiles: &[Profile], target: &str, dry_run: bool, yes: bool, verbose
     if tasks.is_empty() {
         anstream::eprintln!("{PROSE}nothing to do: profile '{target}' has no tasks{PROSE:#}");
         return 0;
+    }
+    if let Some(w) = rsync::capability_warning() {
+        anstream::eprintln!("{ALERT_STRONG}warning:{ALERT_STRONG:#} {w}");
     }
     let mut ok = 0;
     let mut failed = 0;

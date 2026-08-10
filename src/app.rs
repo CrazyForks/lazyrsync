@@ -179,7 +179,7 @@ pub struct App {
 
 impl App {
     pub fn new() -> anyhow::Result<Self> {
-        let settings = Settings::load();
+        let settings = Settings::load()?;
         crate::ui::apply_theme(&settings.theme);
         let mut store = Store::load(true)?;
         let active = store
@@ -192,7 +192,7 @@ impl App {
             store.profiles.insert(0, p);
             store.sort_profiles_by_recency();
         }
-        Ok(Self {
+        let mut app = Self {
             ctx: Ctx {
                 store,
                 settings,
@@ -208,7 +208,11 @@ impl App {
             browse: Browse::new(),
             overlay: None,
             running: true,
-        })
+        };
+        if let Some(warning) = crate::rsync::capability_warning() {
+            app.ctx.push_log(LogKind::Warn, warning);
+        }
+        Ok(app)
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {

@@ -41,7 +41,7 @@ pub fn spawn(task: &Task) -> PreviewHandle {
     let slot = child_slot.clone();
 
     thread::spawn(move || {
-        let mut child = match Command::new("rsync")
+        let mut child = match Command::new(crate::rsync::binary())
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

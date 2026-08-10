@@ -158,13 +158,14 @@ fn config_dir() -> PathBuf {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub skip_delete_warning: bool,
     pub skip_run_confirm: bool,
     pub skip_remove_confirm: bool,
     pub hints: bool,
     pub last_profile: String,
+    pub rsync_path: String,
     pub theme: crate::ui::ThemeSpec,
 }
 
@@ -176,6 +177,7 @@ impl Default for Settings {
             skip_remove_confirm: false,
             hints: true,
             last_profile: String::new(),
+            rsync_path: "rsync".into(),
             theme: crate::ui::ThemeSpec::default(),
         }
     }
@@ -186,12 +188,14 @@ impl Settings {
         config_dir().join("settings.toml")
     }
 
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self> {
         let path = Self::path();
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| toml::from_str(&t).ok())
-            .unwrap_or_default()
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
     pub fn save(&self) -> Result<()> {
@@ -199,10 +203,23 @@ impl Settings {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
-        let text = toml::to_string_pretty(self).context("serializing settings")?;
+        let merged = fs::read_to_string(&path)
+            .ok()
+            .and_then(|old| merge_settings(&old, self.hints, &self.last_profile));
+        let text = match merged {
+            Some(text) => text,
+            None => toml::to_string_pretty(self).context("serializing settings")?,
+        };
         fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
+}
+
+fn merge_settings(existing: &str, hints: bool, last_profile: &str) -> Option<String> {
+    let mut doc = existing.parse::<toml_edit::DocumentMut>().ok()?;
+    doc["hints"] = toml_edit::value(hints);
+    doc["last_profile"] = toml_edit::value(last_profile);
+    Some(doc.to_string())
 }
 
 pub struct Store {
@@ -286,6 +303,25 @@ fn read_file(path: &Path) -> Result<Vec<Profile>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saving_settings_keeps_hand_edited_keys() {
+        let existing = "# never nag before a run\nskip_run_confirm = true\nskip_delete_warning = true\nhints = true\nlast_profile = \"backup\"\n\n[theme]\naccent = \"magenta\"\n";
+
+        let merged = merge_settings(existing, false, "archive").unwrap();
+
+        assert!(merged.contains("# never nag before a run"));
+        assert!(merged.contains("skip_run_confirm = true"));
+        assert!(merged.contains("skip_delete_warning = true"));
+        assert!(merged.contains("accent = \"magenta\""));
+        assert!(merged.contains("hints = false"));
+        assert!(merged.contains("last_profile = \"archive\""));
+    }
+
+    #[test]
+    fn malformed_settings_do_not_merge() {
+        assert!(merge_settings("hints = ", true, "backup").is_none());
+    }
 
     #[test]
     fn profile_round_trips_through_toml() {
