@@ -98,10 +98,10 @@ reliably hardlinking. `brew install rsync`, then either put it ahead of
 startup when the rsync it finds is older than 3.1.
 
 ```bash
-cargo install lazyrsync                          # crates.io
-cargo binstall lazyrsync                          # prebuilt release binary
-brew install westpoint-io/lazyrsync/lazyrsync     # Homebrew
-yay -S lazyrsync                                   # AUR (Arch)
+cargo install lazyrsync      # crates.io
+cargo binstall lazyrsync     # prebuilt release binary
+brew install lazyrsync       # Homebrew
+yay -S lazyrsync             # AUR (Arch)
 ```
 
 Or build from source:
