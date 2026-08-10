@@ -6,6 +6,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-03
+
+### Added
+
+- `rsync_path` in `settings.toml` picks which rsync binary runs instead of the
+  first one on `$PATH`. Useful on macOS 15.4 and later, where `/usr/bin/rsync`
+  is openrsync and shadows Homebrew's rsync, and in any launch context with a
+  minimal `$PATH` such as cron. The configured binary is what the resolved
+  command in the TUI and `lazyrsync list` reports.
+- A startup warning when the rsync found on `$PATH` is older than 3.1. The
+  preview needs `--itemize-changes`, the progress bar needs `--info=progress2`
+  and snapshots need `--link-dest`; openrsync has none of the first two and
+  accepts `--link-dest` without reliably hardlinking.
+- Statically linked musl release binaries for `x86_64-unknown-linux-musl` and
+  `aarch64-unknown-linux-musl`, so distributions carrying a glibc older than
+  2.34 can run a prebuilt binary. `cargo binstall` resolves them on musl hosts.
+
+### Changed
+
+- Saving `settings.toml` preserves comments and every hand-edited key; only
+  `hints` and `last_profile` are rewritten. Editing the file while the TUI is
+  open no longer loses those edits on exit.
+- `settings.toml` rejects unknown keys, the rule `profiles.toml` already
+  followed. One consequence for both: a file written by a newer lazyrsync may
+  fail to load on an older binary rather than being partially ignored.
+
+### Fixed
+
+- A `settings.toml` that exists but cannot be read or parsed is now a loud
+  error instead of being silently discarded and replaced with defaults.
+
 ## [0.2.0] - 2026-07-28
 
 ### Added
